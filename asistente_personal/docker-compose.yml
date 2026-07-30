@@ -1,0 +1,96 @@
+name: asistente-personal
+
+x-log: &log
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+networks:
+  asistente: { driver: bridge }
+
+volumes:
+  whisper-cache:
+
+services:
+  hermes:
+    image: nousresearch/hermes-agent:latest   # replace with @sha256:... once the digest is captured (D1)
+    container_name: hermes
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      TZ: America/Lima                        # D4 - sole source of "7am"
+      VIDA_DB: /opt/data/data/vida.db
+      WHISPER_URL: http://whisper:9000
+    volumes:
+      - ${HERMES_DATA:-./state/hermes}:/opt/data          # D9 - unico volumen con estado
+      - ./bin/vida.py:/opt/data/bin/vida.py:ro            # D2 - data gate inmutable
+      - ./data/schema.sql:/opt/data/bin/schema.sql:ro
+    depends_on:
+      whisper: { condition: service_healthy, required: false }
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f hermes >/dev/null 2>&1 || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    logging: *log
+    networks: [asistente]
+    # sin `ports:` - long polling saliente, admin por Tailscale SSH
+
+  # F0.2 non-blocking: this service is `required: false` on hermes' depends_on so an
+  # unconfigured GPU degrades to "Fase 1 sin voz" instead of blocking boot.
+  # If nvidia-container-toolkit is unconfirmed, do not run `docker compose up whisper`
+  # yet; set WHISPER_OPTIONAL=1 in ops/.env.ops and document the degraded state in README.
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest-gpu
+    container_name: whisper
+    restart: unless-stopped
+    environment:
+      TZ: America/Lima
+      ASR_ENGINE: faster_whisper
+      ASR_MODEL: large-v3
+      ASR_DEVICE: cuda
+      ASR_COMPUTE_TYPE: float16
+      MODEL_IDLE_TIMEOUT: "600"        # libera VRAM entre notas de voz
+    volumes:
+      - whisper-cache:/root/.cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]      # unica GPU passthrough del stack
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/docs >/dev/null || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 300s               # descarga inicial de large-v3
+    logging: *log
+    networks: [asistente]
+    # sin `ports:` - solo alcanzable desde la red interna del compose
+
+  # [BLOCKED: F0.5] Do not `docker compose up -d restic` until RESTIC_REPOSITORY,
+  # RESTIC_PASSWORD and secrets/rclone.conf are real (backup destination + passphrase
+  # with an offsite copy). See proposal.md F0.5 and backup/PASSPHRASE.md (later PR).
+  restic:
+    image: mazzolino/restic:1.6
+    container_name: restic
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      TZ: America/Lima
+      RUN_ON_STARTUP: "false"
+      BACKUP_CRON: "0 30 3 * * *"                       # 03:30 Lima, 10 min tras db-snapshot
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY}           # rclone:${RCLONE_REMOTE}:hermes-backup
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD}
+      RESTIC_BACKUP_SOURCES: /data
+      RESTIC_BACKUP_ARGS: "--tag auto --host labia03"   # D8: NO se excluyen -wal/-shm
+      RESTIC_FORGET_ARGS: "--keep-daily 7 --keep-weekly 4 --keep-monthly 12 --prune"
+      POST_COMMANDS_SUCCESS: "date -Iseconds > /status/last-success"
+    volumes:
+      - ${HERMES_DATA:-./state/hermes}:/data:ro          # read-only: backup no muta estado
+      - ./state/backup:/status                           # sentinel escribible, fuera del backup
+      - ./secrets/rclone.conf:/root/.config/rclone/rclone.conf:ro
+    logging: *log
+    networks: [asistente]

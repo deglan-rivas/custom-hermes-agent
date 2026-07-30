@@ -1,0 +1,9 @@
+.env
+ops/.env.ops
+secrets/
+state/
+restore-drill/
+*.db
+*.db-wal
+*.db-shm
+__pycache__/

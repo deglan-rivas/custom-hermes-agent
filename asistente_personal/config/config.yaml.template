@@ -1,0 +1,21 @@
+# Hermes config.yaml skeleton (design.md §4, §14 F0.1/F0.3).
+# Rendered to $HERMES_DATA/config.yaml by ops/render-config.sh (envsubst), once, never
+# overwritten afterwards -- the agent owns this file after first boot (see design §13 step 3:
+# the allowlist MUST be set before the gateway's first start).
+#
+# Exact key names are a shape, not a verified schema (design §15 open question) --
+# confirm against the installed Hermes version before first boot and adjust if needed.
+
+provider:
+  base_url: ${LLM_BASE_URL}
+  api_key: ${LLM_API_KEY}
+  model: deepseek-v4-pro
+
+telegram:
+  token: ${TELEGRAM_TOKEN}
+  allow_from:
+    - ${TG_USER_ID}
+
+# Overrides Hermes' default (false). All skill_manage writes are staged under
+# ~/.hermes/pending/skills/ and require explicit approve/deny (spec §6).
+write_approval: true
