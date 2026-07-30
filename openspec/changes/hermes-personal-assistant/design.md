@@ -663,11 +663,12 @@ build starts. F0.2 and F0.7 red/open degrade scope (ships without voice) but do 
 
 ## 15. Open Questions
 
-- [ ] **Voice interception mechanism.** The proposal calls for "un hook que intercepta notas de voz
-      de Telegram". Whether Hermes exposes a pre-message hook, or whether this must be a skill that
-      calls `whisper` on an attachment, is unverified. Both land on the same `POST /asr` contract,
-      so the compose design is unaffected — but the implementer must confirm the integration point
-      before writing it. **Add to Fase 0 as F0.7.**
+- [x] **Voice interception mechanism — RESOLVED in PR 4/6 (Groups 4-6).** Decision: implemented as
+      a **skill** (`skills/entrada-voz/SKILL.md` calling `ops/transcribe-voice.sh`), not a
+      gateway-level pre-message hook — Hermes' pre-message hook API remained unverified (F0.7), and
+      the skill pattern was already proven by the five domain skills. Both alternatives land on the
+      same `POST /asr` contract against `whisper:9000`, so nothing here changes if a native hook is
+      confirmed later; see `skills/entrada-voz/SKILL.md` §0 for the full rationale.
 - [ ] **`config.yaml` key names.** `config.yaml.template` uses placeholder key names for provider,
       base_url, api_key, Telegram channel and allowlist. Exact keys come from F0.1/F0.3; the
       template is a shape, not a verified schema.

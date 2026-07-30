@@ -1,0 +1,13 @@
+# Group 7, task 7.8 (design.md §10, D12). ALTERNATIVE to
+# /etc/cron.d/hermes-ops -- install only ONE of the two mechanisms.
+# Replace /srv/asistente_personal with the real deployment path, and `user`
+# in the .timer's install target if not using a system-level timer.
+
+[Unit]
+Description=Hermes ops: docker compose stack health check
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/asistente_personal
+ExecStart=/srv/asistente_personal/ops/check-stack.sh

@@ -1,0 +1,13 @@
+# Group 7, task 7.8 `[BLOCKED: F0.5]` (design.md D8, D12). ALTERNATIVE to
+# /etc/cron.d/hermes-ops -- install only ONE of the two mechanisms. See
+# ops/db-snapshot.sh header for what "blocked" means here (the script
+# itself has no restic dependency).
+
+[Unit]
+Description=Hermes ops: WAL-safe SQLite snapshot (sqlite3.backup())
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/asistente_personal
+ExecStart=/srv/asistente_personal/ops/db-snapshot.sh
