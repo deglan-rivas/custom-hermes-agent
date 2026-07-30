@@ -106,11 +106,14 @@ para que "cuánto gasté en comida en junio" sea una consulta exacta y no una al
 
 ### Fase 1 — Asistente base funcionando (el objetivo)
 
-**1. Contenedor de Hermes.** No existe imagen Docker oficial: hay que escribir un `Dockerfile`
+**1. Contenedor de Hermes.** ~~No existe imagen Docker oficial: hay que escribir un `Dockerfile`
 propio sobre Debian/Ubuntu que ejecute el instalador oficial
 (`curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`) y fije `HERMES_HOME`
-al volumen persistente. Configurar el proveedor (`hermes model`) y el gateway de Telegram
-(`hermes gateway setup` / `hermes gateway start`) apuntando al token del `.env`.
+al volumen persistente.~~ **Corregido**: sí existe imagen oficial (`nousresearch/hermes-agent`
+en Docker Hub) — no se escribe `Dockerfile` propio. Ver
+`openspec/changes/hermes-personal-assistant/design.md` §4-§5 como fuente de verdad actual
+para el layout de archivos y la definición del `docker-compose.yml`. Configurar el proveedor
+y el gateway de Telegram apuntando al token del `.env`.
 
 **2. Esquema de `vida.db`** + un pequeño script CLI (`vida.py`, stdlib de Python, sin ORM) con
 subcomandos: `gasto add/report`, `gym log/progress`, `tarjeta add/next`, `cumple add/upcoming`,
@@ -173,9 +176,9 @@ perder la suscripción de opencode sea un cambio de una línea y no una reescrit
 
 ```
 asistente_personal/
-├── docker-compose.yml          # hermes + whisper (GPU) + restic
-├── Dockerfile                  # imagen propia: instalador oficial de Hermes
-├── .env.template               # LLM_BASE_URL, LLM_API_KEY, TELEGRAM_TOKEN, TG_USER_ID, RESTIC_*
+├── docker-compose.yml          # hermes + whisper (GPU) + restic — sin Dockerfile propio,
+│                                # imagen oficial nousresearch/hermes-agent (ver design.md)
+├── .env.template                # LLM_BASE_URL, LLM_API_KEY, TELEGRAM_TOKEN, TG_USER_ID, RESTIC_*
 ├── data/schema.sql             # esquema de vida.db
 ├── bin/vida.py                 # CLI de datos estructurados (salida JSON)
 ├── skills/{registrar-gasto,gym-tracker,tarjetas,agenda-personal,sobre-mi}/SKILL.md
