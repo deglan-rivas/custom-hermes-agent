@@ -1,0 +1,10 @@
+change: hermes-personal-assistant
+phases:
+  explore: done
+  proposal: done
+  spec: done
+  design: done
+  tasks: done
+  apply: pending
+  verify: pending
+  archive: pending
