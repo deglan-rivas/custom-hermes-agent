@@ -25,5 +25,18 @@ apply_progress:
     gh CLI installed on labia03, authenticated via fine-grained PAT
     (~/.gh_hermes_token) with `gh auth login --with-token` + `gh auth setup-git`
     to wire the git credential helper. Future PRs can push/create via gh directly.
-  remaining_tasks: "Groups 2-9 (data layer, skills, voice, cron, security, backup/observability, git-versioning, rollout)"
-  next_pr: "PR 2/6 — data-layer (Group 2: schema.sql, vida.py, test_vida.py)"
+  pr_2_of_6: data-layer
+  pr_2_status: pushed_pr_open
+  pr_2_branch: hermes-personal-assistant/pr-2-data-layer
+  pr_2_base: hermes-personal-assistant/pr-1-infra
+  pr_2_scope: "Group 2: asistente_personal/data/schema.sql (5 tables), asistente_personal/bin/vida.py (stdlib CLI, date helpers, all subcommands), asistente_personal/tests/test_vida.py (unittest, TDD for date-edge-case functions)"
+  pr_2_tasks_completed: [2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11]
+  pr_2_tests: "32/32 passing via python3 -m unittest discover -s asistente_personal/tests"
+  pr_2_known_deviation: >
+    design.md's `sugerencia` rule references "target reps" for a session's sets,
+    but no target-reps column exists in the schema. Interpreted deterministically
+    as: session is "complete" when no later set's reps fall below the first
+    set's (serie 1) rep count. Documented in vida.py's calcular_sugerencia()
+    docstring.
+  remaining_tasks: "Groups 3-9 (skills, voice, cron, security, backup/observability, git-versioning, rollout)"
+  next_pr: "PR 3/6 — skills (Group 3: 5 SKILL.md files)"

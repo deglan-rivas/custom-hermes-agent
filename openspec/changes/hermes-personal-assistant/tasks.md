@@ -40,17 +40,17 @@ Depends on Group 0.
 
 Depends on Group 0. Independent of Groups 1/3-8 — can run in parallel with them.
 
-- [ ] 2.1 Write `asistente_personal/data/schema.sql`: `gastos`, `entrenamientos`, `tarjetas`, `contactos`, `pendientes`, `schema_version` tables with full column/constraint/index detail from design §6 (`PRAGMA journal_mode=WAL`, `PRAGMA foreign_keys=ON`, idempotent `IF NOT EXISTS`). — Satisfies: spec §2 (Schema coverage).
-- [ ] 2.2 Write `asistente_personal/bin/vida.py` core: stdlib-only CLI skeleton (`argparse`, `sqlite3`, `json`, `datetime`, `calendar`), JSON-only stdout contract (`{"ok": true/false, "action", "data"/"error"+"codigo"}`), DB path from `VIDA_DB` env, auto-apply `schema.sql` on missing `schema_version`, `PRAGMA foreign_keys=ON`/`journal_mode=WAL`/`busy_timeout=5000`, single-transaction writes. — Satisfies: spec §2 (CLI is the only data gateway).
-- [ ] 2.3 Implement date helper functions in `vida.py`: `clamp_dia`, `proxima_fecha_de_dia`, `resolver_ciclo_tarjeta`, `dias_hasta_cumple` per design §7. — Satisfies: spec §2, design §7 (Date helpers), design §9 (Unit test target).
-- [ ] 2.4 [P] Implement `gasto add/report/categorias` subcommands. — Satisfies: spec §2 (Subcommand coverage), spec §2 (Aggregated query never hallucinates).
-- [ ] 2.5 [P] Implement `gym log/progress/resumen` subcommands, including the deterministic `sugerencia` rule (design §7, D11: `INCREMENTO` map, default 2.5kg, complete/incomplete/no-history branches). — Satisfies: spec §2 (Gym progression query).
-- [ ] 2.6 [P] Implement `tarjeta add/next` subcommands (resolved ISO cut/pay dates, `dias_restantes`, `alertar` bool). — Satisfies: spec §2 (Subcommand coverage).
-- [ ] 2.7 [P] Implement `cumple add/upcoming` subcommands (year-wrap handling via `dias_hasta_cumple`). — Satisfies: spec §2 (Subcommand coverage).
-- [ ] 2.8 [P] Implement `pendiente add/today/done` subcommands. — Satisfies: spec §2 (Subcommand coverage).
-- [ ] 2.9 Implement `health` subcommand (`db_path`, `schema_version`, per-table row counts, `integrity_ok`). — Satisfies: design §7, consumed by `restore.sh` and observability.
-- [ ] 2.10 Write `asistente_personal/tests/test_vida.py`: `unittest` over a temp DB — date helpers (Feb 31 clamp, `dia_pago < dia_corte` rollover, Dec→Jan wrap, `sugerencia` complete/incomplete/no-history), schema constraint tests (`monto <= 0` rejected, `UNIQUE(fecha,ejercicio,serie)` rejected, invalid `estado` rejected), and a table-driven contract test asserting every subcommand emits parseable JSON with correct exit codes. — Satisfies: design §9 (Unit, Contract test rows).
-- [ ] 2.11 Run `python3 -m unittest` against 2.10 and fix any failures before moving to Group 3.
+- [x] 2.1 Write `asistente_personal/data/schema.sql`: `gastos`, `entrenamientos`, `tarjetas`, `contactos`, `pendientes`, `schema_version` tables with full column/constraint/index detail from design §6 (`PRAGMA journal_mode=WAL`, `PRAGMA foreign_keys=ON`, idempotent `IF NOT EXISTS`). — Satisfies: spec §2 (Schema coverage).
+- [x] 2.2 Write `asistente_personal/bin/vida.py` core: stdlib-only CLI skeleton (`argparse`, `sqlite3`, `json`, `datetime`, `calendar`), JSON-only stdout contract (`{"ok": true/false, "action", "data"/"error"+"codigo"}`), DB path from `VIDA_DB` env, auto-apply `schema.sql` on missing `schema_version`, `PRAGMA foreign_keys=ON`/`journal_mode=WAL`/`busy_timeout=5000`, single-transaction writes. — Satisfies: spec §2 (CLI is the only data gateway).
+- [x] 2.3 Implement date helper functions in `vida.py`: `clamp_dia`, `proxima_fecha_de_dia`, `resolver_ciclo_tarjeta`, `dias_hasta_cumple` per design §7. — Satisfies: spec §2, design §7 (Date helpers), design §9 (Unit test target).
+- [x] 2.4 [P] Implement `gasto add/report/categorias` subcommands. — Satisfies: spec §2 (Subcommand coverage), spec §2 (Aggregated query never hallucinates).
+- [x] 2.5 [P] Implement `gym log/progress/resumen` subcommands, including the deterministic `sugerencia` rule (design §7, D11: `INCREMENTO` map, default 2.5kg, complete/incomplete/no-history branches). — Satisfies: spec §2 (Gym progression query).
+- [x] 2.6 [P] Implement `tarjeta add/next` subcommands (resolved ISO cut/pay dates, `dias_restantes`, `alertar` bool). — Satisfies: spec §2 (Subcommand coverage).
+- [x] 2.7 [P] Implement `cumple add/upcoming` subcommands (year-wrap handling via `dias_hasta_cumple`). — Satisfies: spec §2 (Subcommand coverage).
+- [x] 2.8 [P] Implement `pendiente add/today/done` subcommands. — Satisfies: spec §2 (Subcommand coverage).
+- [x] 2.9 Implement `health` subcommand (`db_path`, `schema_version`, per-table row counts, `integrity_ok`). — Satisfies: design §7, consumed by `restore.sh` and observability.
+- [x] 2.10 Write `asistente_personal/tests/test_vida.py`: `unittest` over a temp DB — date helpers (Feb 31 clamp, `dia_pago < dia_corte` rollover, Dec→Jan wrap, `sugerencia` complete/incomplete/no-history), schema constraint tests (`monto <= 0` rejected, `UNIQUE(fecha,ejercicio,serie)` rejected, invalid `estado` rejected), and a table-driven contract test asserting every subcommand emits parseable JSON with correct exit codes. — Satisfies: design §9 (Unit, Contract test rows).
+- [x] 2.11 Run `python3 -m unittest` against 2.10 and fix any failures before moving to Group 3. All 32 tests pass (`python3 -m unittest discover -s asistente_personal/tests`).
 
 ---
 
