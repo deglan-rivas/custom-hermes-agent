@@ -1,0 +1,9 @@
+[Unit]
+Description=Run hermes-check-backup.service daily at 09:15 Lima time
+
+[Timer]
+OnCalendar=*-*-* 09:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
