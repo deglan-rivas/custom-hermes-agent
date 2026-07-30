@@ -1,0 +1,15 @@
+# Committed inside the $HERMES_DATA/skills/ git repo (design.md §11, spec §9).
+# Defence in depth against a skill dropping a cache DB in its own folder and
+# quietly turning a text repo into a binary one. `state.db` itself lives at
+# $HERMES_DATA/state.db, outside this repo's root (excluded by scope, D7).
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+__pycache__/
+*.pyc
+*.log
+*.tmp
+.cache/
+.DS_Store

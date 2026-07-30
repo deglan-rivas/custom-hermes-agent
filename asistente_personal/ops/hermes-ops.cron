@@ -1,0 +1,26 @@
+# Group 7, task 7.8 (design.md §10, §12, D12). Install as /etc/cron.d/hermes-ops:
+#
+#   sudo cp asistente_personal/ops/hermes-ops.cron /etc/cron.d/hermes-ops
+#   sudo chmod 644 /etc/cron.d/hermes-ops
+#
+# Replace `user` below with the account that owns the compose deployment,
+# and /srv/asistente_personal with the real deployment path on labia03.
+#
+# D12: crontab is the PRIMARY timer mechanism. ops/systemd/*.{service,timer}
+# is the ALTERNATIVE for the case F0.6 lands on systemd instead -- install
+# only ONE of the two mechanisms, never both (design.md §10).
+#
+# 7.1 db-snapshot.sh is `[BLOCKED: F0.5]` for the full nightly pipeline but
+# has no restic dependency itself; it is safe to enable as soon as
+# vida.db/state.db exist. 7.7 check-backup.sh IS blocked until F0.5 closes
+# and the restic service is live (task 7.9) -- installing it before that
+# will alert every run because there are no snapshots yet.
+
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+CRON_TZ=America/Lima
+
+*/15 *  * * *  user  /srv/asistente_personal/ops/check-stack.sh
+*/15 *  * * *  user  /srv/asistente_personal/ops/skills-autocommit.sh
+20   3  * * *  user  /srv/asistente_personal/ops/db-snapshot.sh
+15   9  * * *  user  /srv/asistente_personal/ops/check-backup.sh
