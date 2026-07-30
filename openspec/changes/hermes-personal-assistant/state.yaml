@@ -5,7 +5,7 @@ phases:
   spec: done
   design: done
   tasks: done
-  apply: in_progress
+  apply: code_complete_pending_execution
   verify: pending
   archive: pending
 apply_progress:
@@ -120,4 +120,34 @@ apply_progress:
     RCLONE_REMOTE in .env.template, TELEGRAM_TOKEN/TG_USER_ID/WHISPER_OPTIONAL
     in ops/.env.ops.template from PR1/PR4). Extended neither, per the
     "extend, don't duplicate" instruction -- there was nothing to extend.
-  next_pr: "PR 6/6 — rollout (Group 9)"
+  pr_6_of_6: rollout
+  pr_6_status: implemented_pending_push
+  pr_6_branch: hermes-personal-assistant/pr-6-rollout
+  pr_6_base: hermes-personal-assistant/pr-5-backup-observability-git
+  pr_6_scope: >
+    Group 9 (final): asistente_personal/README.md rewritten as the full operator
+    bring-up runbook -- F0.5 closure procedure, host sanity checks (F0.6/F0.6-extra),
+    rendering real config from templates (.env, ops/.env.ops, config.yaml via
+    render-config.sh), the bootstrap-order gate (allowlist + write_approval:true
+    BEFORE first `docker compose up`, per design.md §13 step 3), stack bring-up,
+    cron registration, security live verification, backup bring-up gated on F0.5,
+    the laptop restore drill as the hard success gate, and the literal 7-point
+    verification checklist from proposal.md §1 "Cómo se ve el éxito".
+  pr_6_tasks_completed: [9.4]
+  pr_6_tasks_deferred_to_live_operator: [9.1, 9.2, 9.3]
+  pr_6_deferred_rationale: >
+    9.1-9.3 require a real labia03 host, real secrets, a live Telegram bot, and
+    (for 9.2) real GPU -- none available in this sandbox. Each is documented as a
+    concrete runbook step in README.md (§5 for 9.1/9.2, §10 for 9.3's 7-point
+    checklist) rather than falsely marked complete.
+  next_pr: "none -- this is the last PR in the chain"
+  chain_complete_meaning: >
+    All 6 PRs' CODE is written, reviewed-in-sandbox, and (where testable without
+    labia03/real secrets/a live bot) unit-tested or dry-run against throwaway
+    infra. "apply: code_complete_pending_execution" reflects that the SDD
+    implementation phase is finished, but Fase 1 is NOT live yet -- live execution
+    on labia03 (closing F0.5, running README.md sections 0-10 for real, the
+    restore drill, the 7 success criteria) is a separate, human-driven step that
+    no sandboxed PR can perform. sdd-verify should validate artifacts/specs
+    against the code as delivered; sdd-archive should record this same
+    distinction when the change is closed.

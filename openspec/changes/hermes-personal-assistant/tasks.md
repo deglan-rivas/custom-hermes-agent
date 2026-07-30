@@ -136,10 +136,10 @@ Depends on Group 3 (skills must exist to be versioned).
 
 ## Group 9 — Rollout / final wiring (design §13, sequential, after all groups)
 
-- [ ] 9.1 `docker compose up -d hermes` (voice-less). Verify text expense capture end to end (proposal success criterion #1). — Satisfies: spec §2, §3 scenarios.
-- [ ] 9.2 `[DEGRADES: F0.2/F0.7]` `docker compose up -d whisper` if Group 4 succeeded; otherwise confirm `WHISPER_OPTIONAL=1` keeps the rest of the stack healthy.
-- [ ] 9.3 Full end-to-end pass through proposal §1 success criteria #1-5 and #7 (voice #2 conditional on Group 4; restore #6 already covered by 7.10).
-- [ ] 9.4 Write/finalize `asistente_personal/README.md`: Fase 0 checklist → bootstrap steps → verification checklist, including the pinned image digest once captured. — Satisfies: design §4 file table.
+- [ ] 9.1 `docker compose up -d hermes` (voice-less). Verify text expense capture end to end (proposal success criterion #1). — Satisfies: spec §2, §3 scenarios. **Not done — requires the real `labia03` host with real secrets and a live Telegram bot; documented as README.md §5, deferred to live operator execution.**
+- [ ] 9.2 `[DEGRADES: F0.2/F0.7]` `docker compose up -d whisper` if Group 4 succeeded; otherwise confirm `WHISPER_OPTIONAL=1` keeps the rest of the stack healthy. **Not done — same live-host dependency; documented as README.md §5, deferred to live operator execution.**
+- [ ] 9.3 Full end-to-end pass through proposal §1 success criteria #1-5 and #7 (voice #2 conditional on Group 4; restore #6 already covered by 7.10). **Not done — inherently a live verification against a running `labia03` deployment; documented as README.md §10 (literal 7-point checklist), deferred to live operator execution.**
+- [x] 9.4 Write/finalize `asistente_personal/README.md`: Fase 0 checklist → bootstrap steps → verification checklist, including the pinned image digest once captured. — Satisfies: design §4 file table. README.md rewritten as the full operator bring-up runbook: F0.5 closure procedure (§0), host sanity checks (§1), secret rendering (§2), the bootstrap-order gate — allowlist + `write_approval:true` before first `docker compose up` (§3, per design §13 step 3), stack bring-up (§5), cron registration (§6), security live verification (§7), backup bring-up gated on F0.5 (§8), the laptop restore drill as the hard gate (§9), and the literal 7-point success-criteria checklist from proposal.md §1 (§10). Pinned image digest left as an explicit placeholder to be filled during the real `docker compose up -d hermes` on `labia03` (no digest exists yet — captured live, not guessable).
 
 ---
 
