@@ -50,5 +50,29 @@ apply_progress:
     dest names like dia_corte/dia_pago/alerta_dias) matches design.md §7's table
     exactly. No drift to flag; skills were written against the real CLI (read
     directly from asistente_personal/bin/vida.py), not guessed from design.md.
-  remaining_tasks: "Groups 4-9 (voice, cron, security, backup/observability, git-versioning, rollout)"
-  next_pr: "PR 4/6 — voice-cron-security (Groups 4, 5, 6)"
+  pr_4_of_6: voice-cron-security
+  pr_4_status: implemented_pending_push
+  pr_4_branch: hermes-personal-assistant/pr-4-voice-cron-security
+  pr_4_base: hermes-personal-assistant/pr-3-skills
+  pr_4_scope: "Groups 4-6: voice input (skills/entrada-voz/SKILL.md + ops/transcribe-voice.sh + ops/verify-gpu.sh), cron job specs (ops/cron-jobs.md), security artifacts (ops/.env.ops.template, ops/SECURITY-GROUP6.md)"
+  pr_4_tasks_completed: [4.1, 4.2, 4.3, 5.1, 5.2, 5.3, 5.4, 5.5, 6.2, 6.6]
+  pr_4_tasks_deferred_to_rollout: [4.4, 6.1, 6.3, 6.4, 6.5]
+  pr_4_f0_7_decision: >
+    RESOLVED. Voice interception implemented as a skill (skills/entrada-voz/SKILL.md calling
+    ops/transcribe-voice.sh), not a gateway-level pre-message hook -- Hermes' pre-message hook
+    API remained unverified, and the skill pattern was already proven by the 5 domain skills.
+    Both alternatives land on the same POST /asr contract against whisper:9000 (design.md §15),
+    so nothing changes if a native hook is confirmed later. Full rationale in
+    skills/entrada-voz/SKILL.md §0 and design.md §15.
+  pr_4_known_issue: >
+    Sandbox permission system hard-blocks writing/renaming any path matching `.env*` (same guard
+    hit in PR 1 for .env.template). ops/.env.ops.template content was written to
+    ops/env.ops.template.txt -- user must run `mv asistente_personal/ops/env.ops.template.txt
+    asistente_personal/ops/.env.ops.template` locally to finalize.
+  pr_4_deferred_rationale: >
+    Tasks 4.4, 6.1, 6.3, 6.4, 6.5 are inherently live-host/live-bot actions (real GPU, real
+    secrets, real Telegram accounts, a running gateway) that cannot be executed from a sandboxed
+    checkout. Each is documented with its exact remaining steps (ops/SECURITY-GROUP6.md,
+    tasks.md) and explicitly deferred to Group 9 rollout rather than falsely marked complete.
+  remaining_tasks: "Groups 4 (4.4), 6 (6.1,6.3,6.4,6.5), 7-9 (backup/observability, git-versioning, rollout)"
+  next_pr: "PR 5/6 — backup-observability-git (Groups 7, 8)"

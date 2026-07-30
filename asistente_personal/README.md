@@ -1,6 +1,6 @@
 # Asistente personal (Hermes Agent + Telegram) — Fase 1
 
-Status: scaffolding in progress (PR 1/6 — infra). See
+Status: PR 4/6 (voice, cron, security) landed. See
 `../openspec/changes/hermes-personal-assistant/{proposal,spec,design,tasks}.md` for the full
 plan. This README will be finalized in the rollout PR (Group 9, task 9.4) once the pinned image
 digest is captured and every group has landed.
@@ -40,6 +40,32 @@ asistente_personal/
 ├── secrets/                 # gitignored — rclone.conf goes here, never committed
 └── state/                   # gitignored — runtime volume + backup sentinel
 ```
+
+## Voice input (Group 4)
+
+Voice notes are handled by a **skill**, not a gateway hook (F0.7 decision, `design.md` §15,
+rationale in `skills/entrada-voz/SKILL.md` §0): `skills/entrada-voz/SKILL.md` calls
+`ops/transcribe-voice.sh <audio-file>`, which POSTs to `${WHISPER_URL:-http://whisper:9000}/asr`
+and returns transcribed text as JSON, same contract shape as `vida.py`. If whisper is unreachable
+(F0.2 degraded, or the service simply isn't up), the script fails gracefully with a `codigo` the
+skill uses to ask the user to type the message instead — voice is optional, never a hard
+dependency. Run `ops/verify-gpu.sh` on `labia03` before bringing up `whisper` (task 4.1).
+
+## Cron / proactivity (Group 5)
+
+Hermes' cron scheduler is registered **conversationally**, not via a config file this repo ships
+— see `ops/cron-jobs.md` for the exact natural-language messages to send the bot for the daily
+briefing, tarjeta alerts, birthday alerts, and the weekly expense summary, plus the smoke-test
+procedure (design §13 step 7) to run before trusting any job's real schedule.
+
+## Security (Group 6)
+
+`allow_from`/`write_approval` are already wired in `config/config.yaml.template` (PR 1). See
+`ops/SECURITY-GROUP6.md` for the per-task status: `ops/.env.ops.template` (D6 least privilege) and
+the code-review finding (no data leaves the server beyond the LLM endpoint + Telegram) are done;
+filling real secrets, rendering the live config, and the two live-bot verifications (unauthorized
+user ignored, `skill_manage` edit requires approval) are operator actions during rollout (Group
+9), not something a checkout can do on its own.
 
 ## Verification checklist
 

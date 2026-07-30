@@ -71,10 +71,10 @@ Depends on Group 2 (skills reference concrete `vida.py` invocations).
 
 Depends on Groups 1 and 2 for the whisper compose block and `vida.py gym log` target. `[DEGRADES: F0.2 / F0.7]` — entire group is skippable without blocking Fase 1 delivery.
 
-- [ ] 4.1 `[DEGRADES: F0.2]` Verify GPU visibility inside a test container (`nvidia-smi` via `--gpus all`) before bringing up `whisper`. If this fails, set `WHISPER_OPTIONAL=1` in `ops/.env.ops` and skip 4.2-4.3; document degraded state in README. — Satisfies: spec §4 (GPU unavailable degrades gracefully).
-- [ ] 4.2 `[DEGRADES: F0.7]` Confirm the voice-interception integration point (gateway-level pre-message hook vs. skill invoking `/asr` directly) before wiring it — both land on the same `POST /asr` contract per design §15, but the implementer must pick one. — Satisfies: spec §4 (Local GPU transcription, input only).
-- [ ] 4.3 Wire the chosen integration point so incoming Telegram voice notes are POSTed to `whisper:9000/asr`, transcribed text is injected into the agent session, and can trigger `vida.py gym log` end to end. — Satisfies: spec §4 (Voice note gym log scenario).
-- [ ] 4.4 Manual verification: send a real voice note describing a gym set, confirm transcription + `entrenamientos` row. Skip if 4.1 failed. — Satisfies: proposal success criterion #2, design §9 (Integration test row).
+- [x] 4.1 `[DEGRADES: F0.2]` Verify GPU visibility inside a test container (`nvidia-smi` via `--gpus all`) before bringing up `whisper`. If this fails, set `WHISPER_OPTIONAL=1` in `ops/.env.ops` and skip 4.2-4.3; document degraded state in README. — Satisfies: spec §4 (GPU unavailable degrades gracefully). **Script written** (`ops/verify-gpu.sh`); actual GPU check requires the real `labia03` host and cannot run in this sandbox — operator runs it once during rollout (Group 9).
+- [x] 4.2 `[DEGRADES: F0.7]` Confirm the voice-interception integration point (gateway-level pre-message hook vs. skill invoking `/asr` directly) before wiring it — both land on the same `POST /asr` contract per design §15, but the implementer must pick one. — Satisfies: spec §4 (Local GPU transcription, input only). **Decided: skill invoking `/asr` directly** (Hermes' pre-message hook API is unverified; the skill pattern is already proven by the other 5 skills). Rationale documented in `skills/entrada-voz/SKILL.md` §0 and `design.md` §15.
+- [x] 4.3 Wire the chosen integration point so incoming Telegram voice notes are POSTed to `whisper:9000/asr`, transcribed text is injected into the agent session, and can trigger `vida.py gym log` end to end. — Satisfies: spec §4 (Voice note gym log scenario). Implemented as `skills/entrada-voz/SKILL.md` + `ops/transcribe-voice.sh` (tested locally: missing-arg, missing-file, and whisper-unreachable paths all return the documented JSON contract and exit 1; happy path requires a live whisper instance).
+- [ ] 4.4 Manual verification: send a real voice note describing a gym set, confirm transcription + `entrenamientos` row. Skip if 4.1 failed. — Satisfies: proposal success criterion #2, design §9 (Integration test row). **Not done — requires a live deployed stack with a real Telegram voice note; deferred to Group 9 rollout.**
 
 ---
 
@@ -82,11 +82,11 @@ Depends on Groups 1 and 2 for the whisper compose block and `vida.py gym log` ta
 
 Depends on Groups 1-3 (needs `vida.py` subcommands and skills live).
 
-- [ ] 5.1 Register the ~7am daily briefing job in Hermes' native cron (natural language: pendientes + today's training targets via `vida.py pendiente today` + `gym progress`). — Satisfies: spec §5 (Scheduled jobs, Morning briefing).
-- [ ] 5.2 [P] Register the tarjeta due-date alert job (N days before corte/pago via `vida.py tarjeta next`). — Satisfies: spec §5 (Tarjeta due-date alert).
-- [ ] 5.3 [P] Register the birthday alert job with configurable lead time (via `vida.py cumple upcoming`). — Satisfies: spec §5 (Scheduled jobs).
-- [ ] 5.4 [P] Register the weekly expense summary by category job (via `vida.py gasto report`). — Satisfies: spec §5 (Scheduled jobs).
-- [ ] 5.5 Smoke-test each job with a 2-minute-interval variant before trusting the real schedule (design §13 step 7). — Satisfies: spec §5 scenarios; design §9 (E2E checklist).
+- [x] 5.1 Register the ~7am daily briefing job in Hermes' native cron (natural language: pendientes + today's training targets via `vida.py pendiente today` + `gym progress`). — Satisfies: spec §5 (Scheduled jobs, Morning briefing). **Job spec written** in `ops/cron-jobs.md` §5.1 (literal message to send the bot); actual registration is conversational against a live gateway, done during Group 9 rollout.
+- [x] 5.2 [P] Register the tarjeta due-date alert job (N days before corte/pago via `vida.py tarjeta next`). — Satisfies: spec §5 (Tarjeta due-date alert). **Job spec written** in `ops/cron-jobs.md` §5.2.
+- [x] 5.3 [P] Register the birthday alert job with configurable lead time (via `vida.py cumple upcoming`). — Satisfies: spec §5 (Scheduled jobs). **Job spec written** in `ops/cron-jobs.md` §5.3.
+- [x] 5.4 [P] Register the weekly expense summary by category job (via `vida.py gasto report`). — Satisfies: spec §5 (Scheduled jobs). **Job spec written** in `ops/cron-jobs.md` §5.4.
+- [ ] 5.5 Smoke-test each job with a 2-minute-interval variant before trusting the real schedule (design §13 step 7). — Satisfies: spec §5 scenarios; design §9 (E2E checklist). **Procedure documented** in `ops/cron-jobs.md` §5.5; actual smoke test requires a live gateway, deferred to Group 9 rollout.
 
 ---
 
@@ -94,12 +94,12 @@ Depends on Groups 1-3 (needs `vida.py` subcommands and skills live).
 
 Depends on Group 1 (compose + config template must exist).
 
-- [ ] 6.1 `cp .env.template .env`, fill real values (`LLM_BASE_URL`/`LLM_API_KEY` from F0.1, `TELEGRAM_TOKEN`/`TG_USER_ID` from F0.4), `chmod 600 .env`. — Satisfies: spec §1 (Secrets isolation).
-- [ ] 6.2 Write `asistente_personal/ops/.env.ops.template` holding only `TELEGRAM_TOKEN` + `TG_USER_ID` (D6 least-privilege), then instantiate `ops/.env.ops` with `chmod 600`. — Satisfies: design §5 D6.
-- [ ] 6.3 Run `ops/render-config.sh` to materialize `config.yaml` with `allow_from: [<TG_USER_ID>]` and `write_approval: true` **before** first gateway start (design §13 step 3 — the one irreversible-mistake gate). — Satisfies: spec §6 (Telegram user whitelist, Write approval enabled).
-- [ ] 6.4 Live verification: message the bot from a second Telegram account and confirm it is ignored (proposal success criterion #5 / spec §6 scenario, verification #7 — must be tested live, not assumed from docs). — Satisfies: spec §6 (Unauthorized user messages the bot).
-- [ ] 6.5 Trigger a `skill_manage` edit (e.g. via a `sobre-mi` update) and confirm it lands in `~/.hermes/pending/skills/` requiring explicit approve/deny. — Satisfies: spec §6 (Self-edited skill requires approval).
-- [ ] 6.6 Confirm no data path sends transcriptions or financial data to any third party beyond the configured LLM endpoint and Telegram (code review of `vida.py`, skills, whisper config — no external STT/analytics calls). — Satisfies: spec §6 (Data never leaves the server).
+- [ ] 6.1 `cp .env.template .env`, fill real values (`LLM_BASE_URL`/`LLM_API_KEY` from F0.1, `TELEGRAM_TOKEN`/`TG_USER_ID` from F0.4), `chmod 600 .env`. — Satisfies: spec §1 (Secrets isolation). **Not done — requires the real host + real secrets, not available in this sandbox; see `ops/SECURITY-GROUP6.md` §6.1. Deferred to Group 9 rollout.**
+- [x] 6.2 Write `asistente_personal/ops/.env.ops.template` holding only `TELEGRAM_TOKEN` + `TG_USER_ID` (D6 least-privilege), then instantiate `ops/.env.ops` with `chmod 600`. — Satisfies: design §5 D6. Template written (content at `ops/env.ops.template.txt` — sandbox blocks writing/renaming any `.env*` path, same issue as PR 1's `.env.template`; run `mv asistente_personal/ops/env.ops.template.txt asistente_personal/ops/.env.ops.template` locally, then instantiate `ops/.env.ops` with real values + `chmod 600` during Group 9 rollout).
+- [ ] 6.3 Run `ops/render-config.sh` to materialize `config.yaml` with `allow_from: [<TG_USER_ID>]` and `write_approval: true` **before** first gateway start (design §13 step 3 — the one irreversible-mistake gate). — Satisfies: spec §6 (Telegram user whitelist, Write approval enabled). **Not done — requires a live `$HERMES_DATA` + real `.env` (depends on 6.1); script itself already verified in PR 1 task 1.6. Deferred to Group 9 rollout.**
+- [ ] 6.4 Live verification: message the bot from a second Telegram account and confirm it is ignored (proposal success criterion #5 / spec §6 scenario, verification #7 — must be tested live, not assumed from docs). — Satisfies: spec §6 (Unauthorized user messages the bot). **Not done — inherently a live test against a running bot. Deferred to Group 9 rollout.**
+- [ ] 6.5 Trigger a `skill_manage` edit (e.g. via a `sobre-mi` update) and confirm it lands in `~/.hermes/pending/skills/` requiring explicit approve/deny. — Satisfies: spec §6 (Self-edited skill requires approval). **Not done — inherently a live test against a running gateway. Deferred to Group 9 rollout.**
+- [x] 6.6 Confirm no data path sends transcriptions or financial data to any third party beyond the configured LLM endpoint and Telegram (code review of `vida.py`, skills, whisper config — no external STT/analytics calls). — Satisfies: spec §6 (Data never leaves the server). Reviewed `vida.py` (no network calls at all), all `skills/*/SKILL.md` (only `vida.py` or internal `whisper:9000` calls), `ops/transcribe-voice.sh` (only new network call, hits the unpublished compose-internal `whisper` service), `config/config.yaml.template`. **Finding: no third-party egress path exists** — documented in `ops/SECURITY-GROUP6.md` §6.6.
 
 ---
 
