@@ -168,12 +168,13 @@ Los dos checks corren en el host (cron/systemd timer) y alertan por `curl` direc
 - [ ] `cron` o `systemd --user` disponible para los timers de observabilidad (F0.6 define si los scripts van por crontab o por systemd timer).
 - [ ] **F0.6-extra** (del design): `python3` ≥3.8 presente en el host — lo usan `restore.sh` (verificación `PRAGMA integrity_check`) y los scripts de observabilidad.
 
-### F0.7 — Mecanismo de intercepción de voz de Telegram 🟡 (añadido por el design)
-- [ ] Confirmar el punto de integración real: hook a nivel de gateway que intercepta notas de voz antes de que lleguen al agente, vs. skill que el agente invoca llamando a `/asr` del servicio whisper. El design cubre ambos con el mismo contrato HTTP hacia whisper, pero falta confirmar cuál expone Hermes.
-- *Bloquea*: solo la función de voz, igual que F0.2. Fase 1 es entregable sin voz si esto no cierra a tiempo.
+### F0.7 — Mecanismo de intercepción de voz de Telegram 🟢 RESUELTO (PR 4/6)
+- [x] Se implementó como **skill que invoca `/asr`** (`entrada-voz/SKILL.md` + `ops/transcribe-voice.sh`), no como hook de gateway — el hook pre-mensaje de Hermes no está verificado, mientras que el patrón skill-invoca-script ya está probado por las 5 skills de dominio existentes. Ambas opciones comparten el mismo contrato HTTP hacia whisper, así que esto no cierra la puerta a un hook futuro.
+- [x] Degradación confirmada: sin whisper alcanzable, `transcribe-voice.sh` devuelve el contrato JSON de error documentado y exit 1 — probado localmente sin GPU real.
+- *Bloqueaba*: solo la función de voz. Resuelto vía PR 4.
 
 ### Gate de salida de Fase 0
-F0.1 y F0.3 ya cerraron. **F0.5 es el único rojo que queda** para empezar Fase 1. F0.2 y F0.7 en amarillo degradan el alcance (Fase 1 sin voz) pero no lo bloquean.
+F0.1, F0.3 y F0.7 ya cerraron. **F0.5 es el único rojo que queda** para empezar Fase 1. F0.2 sigue en amarillo (requiere hardware real, `nvidia-container-toolkit` en labia03) y degrada el alcance (Fase 1 sin voz) sin bloquear.
 
 ---
 

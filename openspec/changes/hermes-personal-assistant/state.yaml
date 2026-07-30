@@ -5,7 +5,7 @@ phases:
   spec: done
   design: done
   tasks: done
-  apply: in_progress
+  apply: code_complete_pending_execution
   verify: pending
   archive: pending
 apply_progress:
@@ -50,5 +50,104 @@ apply_progress:
     dest names like dia_corte/dia_pago/alerta_dias) matches design.md §7's table
     exactly. No drift to flag; skills were written against the real CLI (read
     directly from asistente_personal/bin/vida.py), not guessed from design.md.
-  remaining_tasks: "Groups 4-9 (voice, cron, security, backup/observability, git-versioning, rollout)"
-  next_pr: "PR 4/6 — voice-cron-security (Groups 4, 5, 6)"
+  pr_4_of_6: voice-cron-security
+  pr_4_status: implemented_pending_push
+  pr_4_branch: hermes-personal-assistant/pr-4-voice-cron-security
+  pr_4_base: hermes-personal-assistant/pr-3-skills
+  pr_4_scope: "Groups 4-6: voice input (skills/entrada-voz/SKILL.md + ops/transcribe-voice.sh + ops/verify-gpu.sh), cron job specs (ops/cron-jobs.md), security artifacts (ops/.env.ops.template, ops/SECURITY-GROUP6.md)"
+  pr_4_tasks_completed: [4.1, 4.2, 4.3, 5.1, 5.2, 5.3, 5.4, 5.5, 6.2, 6.6]
+  pr_4_tasks_deferred_to_rollout: [4.4, 6.1, 6.3, 6.4, 6.5]
+  pr_4_f0_7_decision: >
+    RESOLVED. Voice interception implemented as a skill (skills/entrada-voz/SKILL.md calling
+    ops/transcribe-voice.sh), not a gateway-level pre-message hook -- Hermes' pre-message hook
+    API remained unverified, and the skill pattern was already proven by the 5 domain skills.
+    Both alternatives land on the same POST /asr contract against whisper:9000 (design.md §15),
+    so nothing changes if a native hook is confirmed later. Full rationale in
+    skills/entrada-voz/SKILL.md §0 and design.md §15.
+  pr_4_known_issue: >
+    Sandbox permission system hard-blocks writing/renaming any path matching `.env*` (same guard
+    hit in PR 1 for .env.template). ops/.env.ops.template content was written to
+    ops/env.ops.template.txt -- user must run `mv asistente_personal/ops/env.ops.template.txt
+    asistente_personal/ops/.env.ops.template` locally to finalize.
+  pr_4_deferred_rationale: >
+    Tasks 4.4, 6.1, 6.3, 6.4, 6.5 are inherently live-host/live-bot actions (real GPU, real
+    secrets, real Telegram accounts, a running gateway) that cannot be executed from a sandboxed
+    checkout. Each is documented with its exact remaining steps (ops/SECURITY-GROUP6.md,
+    tasks.md) and explicitly deferred to Group 9 rollout rather than falsely marked complete.
+  remaining_tasks_after_pr4: "Groups 4 (4.4), 6 (6.1,6.3,6.4,6.5), 7-9 (backup/observability, git-versioning, rollout)"
+  pr_5_of_6: backup-observability-git
+  pr_5_status: implemented_pending_push
+  pr_5_branch: hermes-personal-assistant/pr-5-backup-observability-git
+  pr_5_base: hermes-personal-assistant/pr-4-voice-cron-security
+  pr_5_scope: >
+    Groups 7-8: ops/notify.sh, ops/check-stack.sh, ops/check-backup.sh,
+    ops/db-snapshot.sh + ops/db_snapshot.py (WAL-safe sqlite3.backup(),
+    unit-tested), ops/hermes-ops.cron + ops/systemd/*.{service,timer,README.md}
+    (D12), ops/skills-git-init.sh, ops/skills-autocommit.sh,
+    skills/.gitignore, backup/backup.sh, backup/restore.sh +
+    backup/restore_verify.py (unit-tested), backup/PASSPHRASE.md,
+    tests/test_db_snapshot.py, tests/test_restore_verify.py.
+  pr_5_tasks_completed: [7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 8.1, 8.2, 8.3, 8.4, 8.5]
+  pr_5_tasks_blocked_on_f05: [7.9, 7.10, 7.11, 8.6]
+  pr_5_tests: >
+    47/47 passing via `python3 -m unittest discover -s asistente_personal/tests`
+    (32 pre-existing from PR2's test_vida.py + 5 new in test_db_snapshot.py +
+    10 new in test_restore_verify.py). shellcheck -s sh clean on all new
+    scripts (only pre-existing SC1091 info-level notices, same pattern as
+    render-config.sh from PR1).
+  pr_5_manual_dry_runs: >
+    check-stack.sh against a real throwaway docker-compose stack (transition
+    alerting verified: silent-ok, alert-on-failure, silent-repeat, recovery
+    alert). db-snapshot.sh against a scratch volume with a real vida.db.
+    skills-git-init.sh + skills-autocommit.sh idempotency and commit-on-change.
+    A deliberate bad skill edit identified via git log -p and reverted via
+    git revert (task 8.5). backup.sh and restore.sh end-to-end against a
+    throwaway local restic repository (init, backup, forget, check, restore,
+    refusal branches for missing creds and non-empty target).
+  pr_5_blocked_on_f05_explicit: >
+    F0.5 (backup destination + restic passphrase + offsite copy) is still
+    OPEN. Blocked: task 7.9 (bring up real restic service + manual
+    backup/check-backup run), task 7.10 (real restore drill on a laptop
+    against labia03 + real cloud creds -- documented as a manual runbook
+    step in backup/PASSPHRASE.md, not faked), task 7.11 (install cron/systemd
+    on the real host + live Telegram alert verification), task 8.6 (confirm
+    skills/.git is present inside a REAL restic snapshot). All corresponding
+    code is written and dry-run against scratch/throwaway infra; only real
+    secrets + the real host are missing.
+  pr_5_known_deviation: >
+    No .env.template or ops/.env.ops.template changes were needed -- both
+    already carried the exact env vars this PR's scripts need (RESTIC_* /
+    RCLONE_REMOTE in .env.template, TELEGRAM_TOKEN/TG_USER_ID/WHISPER_OPTIONAL
+    in ops/.env.ops.template from PR1/PR4). Extended neither, per the
+    "extend, don't duplicate" instruction -- there was nothing to extend.
+  pr_6_of_6: rollout
+  pr_6_status: implemented_pending_push
+  pr_6_branch: hermes-personal-assistant/pr-6-rollout
+  pr_6_base: hermes-personal-assistant/pr-5-backup-observability-git
+  pr_6_scope: >
+    Group 9 (final): asistente_personal/README.md rewritten as the full operator
+    bring-up runbook -- F0.5 closure procedure, host sanity checks (F0.6/F0.6-extra),
+    rendering real config from templates (.env, ops/.env.ops, config.yaml via
+    render-config.sh), the bootstrap-order gate (allowlist + write_approval:true
+    BEFORE first `docker compose up`, per design.md §13 step 3), stack bring-up,
+    cron registration, security live verification, backup bring-up gated on F0.5,
+    the laptop restore drill as the hard success gate, and the literal 7-point
+    verification checklist from proposal.md §1 "Cómo se ve el éxito".
+  pr_6_tasks_completed: [9.4]
+  pr_6_tasks_deferred_to_live_operator: [9.1, 9.2, 9.3]
+  pr_6_deferred_rationale: >
+    9.1-9.3 require a real labia03 host, real secrets, a live Telegram bot, and
+    (for 9.2) real GPU -- none available in this sandbox. Each is documented as a
+    concrete runbook step in README.md (§5 for 9.1/9.2, §10 for 9.3's 7-point
+    checklist) rather than falsely marked complete.
+  next_pr: "none -- this is the last PR in the chain"
+  chain_complete_meaning: >
+    All 6 PRs' CODE is written, reviewed-in-sandbox, and (where testable without
+    labia03/real secrets/a live bot) unit-tested or dry-run against throwaway
+    infra. "apply: code_complete_pending_execution" reflects that the SDD
+    implementation phase is finished, but Fase 1 is NOT live yet -- live execution
+    on labia03 (closing F0.5, running README.md sections 0-10 for real, the
+    restore drill, the 7 success criteria) is a separate, human-driven step that
+    no sandboxed PR can perform. sdd-verify should validate artifacts/specs
+    against the code as delivered; sdd-archive should record this same
+    distinction when the change is closed.
