@@ -58,12 +58,12 @@ Depends on Group 0. Independent of Groups 1/3-8 — can run in parallel with the
 
 Depends on Group 2 (skills reference concrete `vida.py` invocations).
 
-- [ ] 3.1 [P] Write `asistente_personal/skills/registrar-gasto/SKILL.md` (5 mandatory sections: Cuándo se activa, Comando exacto, Mapeo lenguaje→flags, Cómo responder, Nunca) per design §8 table. — Satisfies: spec §3 (Domain skill set, Natural-language expense capture).
-- [ ] 3.2 [P] Write `asistente_personal/skills/gym-tracker/SKILL.md` (multi-set expansion of `3x8x60`, `sugerencia`/`razon` echo, exercise name normalization). — Satisfies: spec §3 (Domain skill set).
-- [ ] 3.3 [P] Write `asistente_personal/skills/tarjetas/SKILL.md` (resolved ISO date + `dias_restantes` reporting, separate cut/pay day capture). — Satisfies: spec §3 (Domain skill set).
-- [ ] 3.4 [P] Write `asistente_personal/skills/agenda-personal/SKILL.md` (`pendiente`/`cumple` subcommand mapping, relative-date resolution, id lookup before `pendiente done`). — Satisfies: spec §3 (Domain skill set).
-- [ ] 3.5 Write `asistente_personal/skills/sobre-mi/SKILL.md` seed: routine/gym split, canonical expense-category vocabulary, default currency, timezone, alert lead times, tone preferences, exercise aliases, and its own `skill_manage` update protocol note. — Satisfies: spec §3 (Living self-documentation).
-- [ ] 3.6 Confirm each `SKILL.md` includes the shared **Nunca** guardrail block verbatim (never compute totals/dates/targets, never invent missing values, never write outside `vida.py`, never silently retry). — Satisfies: spec §3, design §8.
+- [x] 3.1 [P] Write `asistente_personal/skills/registrar-gasto/SKILL.md` (5 mandatory sections: Cuándo se activa, Comando exacto, Mapeo lenguaje→flags, Cómo responder, Nunca) per design §8 table. — Satisfies: spec §3 (Domain skill set, Natural-language expense capture).
+- [x] 3.2 [P] Write `asistente_personal/skills/gym-tracker/SKILL.md` (multi-set expansion of `3x8x60`, `sugerencia`/`razon` echo, exercise name normalization). — Satisfies: spec §3 (Domain skill set).
+- [x] 3.3 [P] Write `asistente_personal/skills/tarjetas/SKILL.md` (resolved ISO date + `dias_restantes` reporting, separate cut/pay day capture). — Satisfies: spec §3 (Domain skill set).
+- [x] 3.4 [P] Write `asistente_personal/skills/agenda-personal/SKILL.md` (`pendiente`/`cumple` subcommand mapping, relative-date resolution, id lookup before `pendiente done`). — Satisfies: spec §3 (Domain skill set).
+- [x] 3.5 Write `asistente_personal/skills/sobre-mi/SKILL.md` seed: routine/gym split, canonical expense-category vocabulary, default currency, timezone, alert lead times, tone preferences, exercise aliases, and its own `skill_manage` update protocol note. — Satisfies: spec §3 (Living self-documentation).
+- [x] 3.6 Confirm each `SKILL.md` includes the shared **Nunca** guardrail block verbatim (never compute totals/dates/targets, never invent missing values, never write outside `vida.py`, never silently retry). — Satisfies: spec §3, design §8.
 
 ---
 

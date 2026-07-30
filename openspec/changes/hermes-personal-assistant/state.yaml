@@ -38,5 +38,16 @@ apply_progress:
     as: session is "complete" when no later set's reps fall below the first
     set's (serie 1) rep count. Documented in vida.py's calcular_sugerencia()
     docstring.
-  remaining_tasks: "Groups 3-9 (skills, voice, cron, security, backup/observability, git-versioning, rollout)"
-  next_pr: "PR 3/6 — skills (Group 3: 5 SKILL.md files)"
+  pr_3_of_6: skills
+  pr_3_status: pending_push
+  pr_3_branch: hermes-personal-assistant/pr-3-skills
+  pr_3_base: hermes-personal-assistant/pr-2-data-layer
+  pr_3_scope: "Group 3: 5 SKILL.md files (registrar-gasto, gym-tracker, tarjetas, agenda-personal, sobre-mi) under asistente_personal/skills/, matching the exact vida.py CLI contract built in PR2"
+  pr_3_tasks_completed: [3.1, 3.2, 3.3, 3.4, 3.5, 3.6]
+  pr_3_known_deviation: >
+    None — vida.py's actual argparse wiring (subcommands, required/optional flags,
+    dest names like dia_corte/dia_pago/alerta_dias) matches design.md §7's table
+    exactly. No drift to flag; skills were written against the real CLI (read
+    directly from asistente_personal/bin/vida.py), not guessed from design.md.
+  remaining_tasks: "Groups 4-9 (voice, cron, security, backup/observability, git-versioning, rollout)"
+  next_pr: "PR 4/6 — voice-cron-security (Groups 4, 5, 6)"
