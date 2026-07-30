@@ -1,0 +1,11 @@
+# Group 8, task 8.4 (design.md §11, D12). ALTERNATIVE to
+# /etc/cron.d/hermes-ops -- install only ONE of the two mechanisms.
+
+[Unit]
+Description=Hermes ops: auto-commit skills git repo
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/asistente_personal
+ExecStart=/srv/asistente_personal/ops/skills-autocommit.sh

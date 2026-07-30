@@ -1,0 +1,9 @@
+[Unit]
+Description=Run hermes-db-snapshot.service daily at 03:20 Lima time
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

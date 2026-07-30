@@ -1,6 +1,6 @@
 # Asistente personal (Hermes Agent + Telegram) — Fase 1
 
-Status: PR 4/6 (voice, cron, security) landed. See
+Status: PR 5/6 (backup, observability, skills git-versioning) landed. See
 `../openspec/changes/hermes-personal-assistant/{proposal,spec,design,tasks}.md` for the full
 plan. This README will be finalized in the rollout PR (Group 9, task 9.4) once the pinned image
 digest is captured and every group has landed.
@@ -36,7 +36,10 @@ asistente_personal/
 ├── tests/                   # test_vida.py lands here (Group 2)
 ├── skills/                  # SKILL.md files land here (Group 3)
 ├── ops/render-config.sh     # renders config.yaml.template -> $HERMES_DATA/config.yaml once
-├── backup/                  # backup.sh, restore.sh, PASSPHRASE.md land here (Group 7)
+├── ops/{notify,check-stack,check-backup,db-snapshot,db_snapshot,skills-git-init,
+│        skills-autocommit}.sh|.py   # Group 7-8: watchdogs, snapshots, skills git repo
+├── ops/hermes-ops.cron      # primary timer mechanism (D12); ops/systemd/ is the alternative
+├── backup/{backup.sh,restore.sh,restore_verify.py,PASSPHRASE.md}  # Group 7
 ├── secrets/                 # gitignored — rclone.conf goes here, never committed
 └── state/                   # gitignored — runtime volume + backup sentinel
 ```
@@ -66,6 +69,38 @@ the code-review finding (no data leaves the server beyond the LLM endpoint + Tel
 filling real secrets, rendering the live config, and the two live-bot verifications (unauthorized
 user ignored, `skill_manage` edit requires approval) are operator actions during rollout (Group
 9), not something a checkout can do on its own.
+
+## Backup and observability (Group 7)
+
+`ops/db-snapshot.sh` (03:20 Lima) takes an online-consistent copy of `vida.db`/`state.db` via the
+stdlib `sqlite3` backup API (`ops/db_snapshot.py`, unit-tested in `tests/test_db_snapshot.py`) —
+safe for a WAL-mode database under concurrent writers, unlike a plain file copy (D8). `restic`
+runs its own nightly backup at 03:30 (`docker-compose.yml`). `backup/backup.sh` is the on-demand
+equivalent (backup + retention + `restic check`); `backup/restore.sh` restores a snapshot and
+verifies it (`backup/restore_verify.py`, unit-tested) — SQLite integrity with automatic fallback
+to the latest `db-snapshot.sh` output, skills git history presence, and a JSON summary. Two host
+watchdogs (`ops/check-stack.sh` every 15 min, `ops/check-backup.sh` daily at 09:15) alert via
+direct Telegram Bot API `curl` (`ops/notify.sh`) with transition-only alerting so a poller doesn't
+get muted. `ops/hermes-ops.cron` is the primary timer (D12); `ops/systemd/` is the alternative —
+install only one.
+
+**`[BLOCKED: F0.5]`**: `backup/backup.sh`, `backup/restore.sh`, `ops/check-backup.sh`, and
+bringing up the `restic` service all require a real backup destination and passphrase (see
+`backup/PASSPHRASE.md` and F0.5 below). The code is complete and dry-run against a throwaway
+local restic repository; the real restore drill (task 7.10) needs `labia03` + real cloud
+credentials and is documented as a manual runbook step, not faked as done.
+
+## Skills git-versioning (Group 8)
+
+`ops/skills-git-init.sh` seeds `$HERMES_DATA/skills/` from this repo's `skills/` directory,
+`git init`s it as a local, commit-only repo (no remote, local-only `hermes-autocommit` identity —
+design.md §11), and makes the first commit. `ops/skills-autocommit.sh` runs every 15 min via cron
+alongside `check-stack.sh` and commits any change (never auto-inits). `skills/.gitignore` excludes
+SQLite/cache files so a skill dropping a cache DB never bloats the repo. Recovery: `git -C
+$HERMES_DATA/skills log -p -- <skill>/SKILL.md` to see what changed, `git revert <sha>` to undo a
+bad self-edit — verified manually against a throwaway repo (see PR description). The `.git/`
+directory lives inside the same volume restic already backs up (spec §9 "Additive to existing
+backup") — verifying it's present inside a real snapshot is `[BLOCKED: F0.5]` (task 8.6).
 
 ## Verification checklist
 
