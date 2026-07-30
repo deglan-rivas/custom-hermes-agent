@@ -39,7 +39,8 @@ apply_progress:
     set's (serie 1) rep count. Documented in vida.py's calcular_sugerencia()
     docstring.
   pr_3_of_6: skills
-  pr_3_status: pending_push
+  pr_3_status: pushed_pr_open
+  pr_3_url: "https://github.com/deglan-rivas/custom-hermes-agent/pull/3"
   pr_3_branch: hermes-personal-assistant/pr-3-skills
   pr_3_base: hermes-personal-assistant/pr-2-data-layer
   pr_3_scope: "Group 3: 5 SKILL.md files (registrar-gasto, gym-tracker, tarjetas, agenda-personal, sobre-mi) under asistente_personal/skills/, matching the exact vida.py CLI contract built in PR2"
