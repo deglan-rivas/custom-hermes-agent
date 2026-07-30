@@ -12,15 +12,18 @@ apply_progress:
   delivery_strategy: chained-prs (stacked-to-main)
   chain_plan: [infra, data-layer, skills, voice-cron-security, backup-observability-git, rollout]
   pr_1_of_6: infra
-  pr_1_status: done
+  pr_1_status: pushed_pr_open
+  pr_1_url: "https://github.com/deglan-rivas/custom-hermes-agent/pull/1"
+  pr_1_branch: hermes-personal-assistant/pr-1-infra
   pr_1_scope: "Group 0 (repo scaffolding) + Group 1 (docker-compose stack, config.yaml.template, render-config.sh)"
   pr_1_tasks_completed: [0.1, 0.2, 0.3, 0.4, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6]
   pr_1_known_issue: >
-    Sandbox permission system hard-blocks writing to any path matching `.env*`.
-    Content for `asistente_personal/.env.template` was created as
-    `asistente_personal/env.template.txt`; user must locally run
-    `mv asistente_personal/env.template.txt asistente_personal/.env.template`
-    before committing/using it. Tracked here so PR 2 (data-layer) does not
-    re-discover this from scratch.
+    RESOLVED. Sandbox permission system hard-blocks writing to any path matching
+    `.env*` (safety guard). User ran `mv asistente_personal/env.template.txt
+    asistente_personal/.env.template` manually; committed in c6868ed.
+  gh_setup: >
+    gh CLI installed on labia03, authenticated via fine-grained PAT
+    (~/.gh_hermes_token) with `gh auth login --with-token` + `gh auth setup-git`
+    to wire the git credential helper. Future PRs can push/create via gh directly.
   remaining_tasks: "Groups 2-9 (data layer, skills, voice, cron, security, backup/observability, git-versioning, rollout)"
   next_pr: "PR 2/6 — data-layer (Group 2: schema.sql, vida.py, test_vida.py)"
