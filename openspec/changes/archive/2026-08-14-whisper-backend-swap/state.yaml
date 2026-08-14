@@ -1,0 +1,24 @@
+change: whisper-backend-swap
+artifact_store: openspec
+baseline: hermes-personal-assistant (Fase 1, live on labia03) + daily-routine-tracker (planned, unrelated surface)
+status: archived
+archived_date: 2026-08-14
+phases:
+  explore: done
+  proposal: done
+  spec: done
+  design: done
+  tasks: done
+  apply: done
+  verify: done
+  archive: done
+artifacts:
+  explore: openspec/changes/archive/2026-08-14-whisper-backend-swap/explore.md
+  proposal: openspec/changes/archive/2026-08-14-whisper-backend-swap/proposal.md
+  spec: openspec/changes/archive/2026-08-14-whisper-backend-swap/spec.md
+  design: openspec/changes/archive/2026-08-14-whisper-backend-swap/design.md
+  tasks: openspec/changes/archive/2026-08-14-whisper-backend-swap/tasks.md
+  archive_report_engram: sdd/whisper-backend-swap/archive-report
+verification_status: pass_with_warnings
+apply_status: 18/19 tasks completed, plus 2 follow-up fixes (commits 984b992, 66c8fbe, 5e46ddf)
+acceptance_gate_t19: confirmed_by_user (real_telegram_voice_note_test_passed)

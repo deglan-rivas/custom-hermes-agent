@@ -35,6 +35,13 @@ scripts que las skills invocan) nunca se montó.
 
 ## 3. Healthcheck de `whisper` en falso negativo permanente
 
+> **Nota (change `whisper-backend-swap`):** este incidente es específico de la imagen
+> `onerahmet/openai-whisper-asr-webservice:latest-gpu`, retirada por ese change en favor de
+> `ghcr.io/speaches-ai/speaches`. La imagen `speaches` sí trae `curl` (verificado en vivo,
+> `openspec/changes/whisper-backend-swap/tasks.md` T3) y el healthcheck volvió a `curl` plano.
+> Se deja este registro intacto porque sigue siendo válido para cualquiera que haga rollback a
+> la imagen `onerahmet`.
+
 **Síntoma:** el contenedor `whisper` quedaba `unhealthy` indefinidamente aunque el servicio
 funcionaba bien (`nvidia-smi` mostraba el proceso cargado y usando VRAM).
 
@@ -142,3 +149,43 @@ job real**, son dos mensajes distintos.
 - **Alerta de stack caído (criterio #7):** no hace falta esperar el tick de 15 min del
   cron — correr `ops/check-stack.sh` a mano después de `docker compose stop whisper`
   dispara la transición `ok→bad` (y luego `bad→ok` al levantarlo de nuevo) de inmediato.
+
+---
+
+## 10. `deepseek-v4-pro` bloqueado por región (403) — LLM principal no respondía
+
+**Contexto:** durante `whisper-backend-swap` (swap del sidecar de transcripción a
+`speaches`), el usuario probó el flujo completo mandando una nota de voz real por
+Telegram. La transcripción funcionó (`ok: true, texto: "..."`), pero el bot respondió
+con `⚠️ The model provider failed after retries` — **no relacionado con whisper**.
+
+**Síntoma en logs (`docker compose logs hermes`):**
+```
+PermissionDeniedError ... provider=opencode-go model=deepseek-v4-pro
+HTTP 403: The latest version of this model is only available hosted in China
+and requires explicit opt in: https://opencode.ai/workspace/.../go
+```
+Mismo error afectaba también al cron `pendientes-diarios`, confirmando que es el
+modelo LLM principal el que falla, no un problema específico de la skill de voz.
+
+**Causa:** `config.yaml` (`model.default`) tenía fijado `deepseek-v4-pro`, versión que
+la suscripción opencode Go de este usuario no puede usar sin opt-in explícito
+(restricción de región del lado del proveedor, no un problema de API key).
+
+**Fix:** cambiado `model.default` a `gpt-5.6-luna` en `/opt/data/config.yaml`
+(dentro del volumen montado por `hermes`, editado vía `docker exec hermes sed ...`,
+sin rebuild) + `docker compose restart hermes`. Verificado con un `curl` directo a
+`https://opencode.ai/zen/go/v1/chat/completions` antes de aplicar el cambio.
+
+**Cómo ver los modelos disponibles en la suscripción**, si vuelve a pasar con otro
+modelo:
+```sh
+docker exec hermes sh -c '
+KEY=$(grep OPENCODE_GO_API_KEY /opt/data/.env | cut -d= -f2)
+curl -fsS -H "Authorization: Bearer $KEY" "https://opencode.ai/zen/go/v1/models"
+' | python3 -m json.tool
+```
+
+**Nota:** `model.default` vive en `config.yaml`, **no** en `.env` — `.env` solo trae
+`LLM_BASE_URL`/`LLM_API_KEY` del endpoint. Si se reconstruye `config.yaml` desde cero
+(incidente #4), hay que volver a fijar `gpt-5.6-luna` a mano.

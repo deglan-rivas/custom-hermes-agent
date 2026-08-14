@@ -7,7 +7,7 @@ phases:
   spec: done
   design: done
   tasks: done
-  apply: pending
+  apply: in_progress
   verify: pending
   archive: pending
 artifacts:

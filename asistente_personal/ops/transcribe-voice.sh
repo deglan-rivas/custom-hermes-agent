@@ -1,12 +1,13 @@
 #!/bin/sh
-# Transcribe a Telegram voice note via the whisper sidecar's POST /asr endpoint.
+# Transcribe a Telegram voice note via the whisper sidecar's OpenAI-compatible
+# POST /v1/audio/transcriptions endpoint (speaches-ai/speaches backend).
 #
 # Design ref: design.md §5 D3 (compose service), §15 (voice interception decision).
 # DECISION (F0.7, resolved by this PR): the integration point is a SKILL calling this
 # script directly, not a gateway-level pre-message hook -- see
 # skills/entrada-voz/SKILL.md for the full rationale. Both alternatives land on this
-# same POST /asr contract (design §15), so nothing here changes if a native hook is
-# confirmed later.
+# same POST /v1/audio/transcriptions contract (design §15), so nothing here changes if
+# a native hook is confirmed later.
 #
 # Contract: stdout is always exactly one JSON object, same shape as vida.py's contract
 # so the calling skill can treat both the same way:
@@ -18,13 +19,24 @@
 # of crashing. The calling skill MUST then ask the user to type the message -- never
 # silently drop it, never retry in a loop.
 #
+# --max-time 90 (not 30): speaches' PRELOAD_MODELS only warms the model into RAM/disk
+# cache, not VRAM -- the first request after each container start/restart pays a real
+# cold VRAM load on top of inference. 30s was too tight and caused spurious timeouts
+# on the first note after a restart.
+#
 # Usage: ops/transcribe-voice.sh <path-to-downloaded-audio-file>
 
 set -u
 
-WHISPER_URL="${WHISPER_URL:-http://whisper:9000}"
+WHISPER_URL="${WHISPER_URL:-http://whisper:8000}"
 AUDIO_FILE="${1:-}"
 ACTION="asr.transcribe"
+# Notas de voz del usuario son en español -- sin este hint speaches hace
+# auto-detect de idioma y puede confundirlo con baja confianza (visto en vivo:
+# detectó "en" con 0.34 de probabilidad en un audio real en español).
+WHISPER_LANGUAGE="${WHISPER_LANGUAGE:-es}"
+# Debe coincidir con PRELOAD_MODELS en docker-compose.yml (servicio whisper).
+WHISPER_MODEL="${WHISPER_MODEL:-Systran/faster-whisper-large-v3}"
 
 fail() {
   codigo="$1"
@@ -41,10 +53,12 @@ print(json.dumps({"ok": False, "action": sys.argv[1], "error": sys.argv[2], "cod
 command -v curl >/dev/null 2>&1 || fail "curl_no_disponible" "curl no esta instalado"
 command -v python3 >/dev/null 2>&1 || fail "python3_no_disponible" "python3 no esta instalado"
 
-RESPUESTA="$(curl -fsS --max-time 30 \
-  -F "audio_file=@${AUDIO_FILE}" \
-  "${WHISPER_URL}/asr?output=json" 2>/dev/null)" || {
-  fail "whisper_no_disponible" "no se pudo contactar ${WHISPER_URL}/asr (servicio caido, timeout, o F0.2/whisper aun no desplegado -- ver ops/verify-gpu.sh)"
+RESPUESTA="$(curl -fsS --max-time 90 \
+  -F "file=@${AUDIO_FILE}" \
+  -F "model=${WHISPER_MODEL}" \
+  -F "language=${WHISPER_LANGUAGE}" \
+  "${WHISPER_URL}/v1/audio/transcriptions" 2>/dev/null)" || {
+  fail "whisper_no_disponible" "no se pudo contactar ${WHISPER_URL}/v1/audio/transcriptions (servicio caido, timeout, o F0.2/whisper aun no desplegado -- ver ops/verify-gpu.sh)"
 }
 
 printf '%s' "$RESPUESTA" | python3 -c '

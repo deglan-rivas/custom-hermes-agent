@@ -8,9 +8,10 @@ description: Transcribe notas de voz de Telegram a texto vía whisper y despacha
 ## 0. Decisión de diseño (F0.7, design.md §15)
 
 `design.md` §15 dejaba dos alternativas abiertas para la integración de voz: un hook a nivel de
-gateway que intercepta antes del matching de skills, o un skill que llama a `/asr` directamente —
-ambas terminan en el mismo contrato `POST /asr` contra `whisper:9000`. **Esta PR resuelve F0.7
-eligiendo la segunda opción: skill, no hook de gateway.**
+gateway que intercepta antes del matching de skills, o un skill que llama a
+`/v1/audio/transcriptions` directamente — ambas terminan en el mismo contrato
+`POST /v1/audio/transcriptions` contra `whisper:8000`. **Esta PR resuelve F0.7 eligiendo la
+segunda opción: skill, no hook de gateway.**
 
 Razón: el mecanismo de hook pre-mensaje de Hermes no está confirmado (F0.7 seguía abierto y
 no-bloqueante por proposal.md), y construir sobre un hook de core sin verificar es exactamente el
@@ -32,8 +33,9 @@ ops/transcribe-voice.sh <ruta-al-archivo-de-audio-descargado>
 ```
 
 El archivo de audio ya debe estar descargado localmente (la ruta del adjunto que Hermes entrega
-para ese mensaje). El script hace `POST` a `${WHISPER_URL:-http://whisper:9000}/asr?output=json`
-con `curl` y devuelve un único objeto JSON, con el mismo formato de contrato que `vida.py`.
+para ese mensaje). El script hace `POST` a
+`${WHISPER_URL:-http://whisper:8000}/v1/audio/transcriptions` con `curl` y devuelve un único
+objeto JSON, con el mismo formato de contrato que `vida.py`.
 
 ## 3. Mapeo de resultado → acción
 
