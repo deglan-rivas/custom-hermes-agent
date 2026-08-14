@@ -14,6 +14,7 @@ services:
   hermes:
     image: nousresearch/hermes-agent:latest   # replace with @sha256:... once the digest is captured (D1)
     container_name: hermes
+    command: gateway run                      # runs the messaging gateway daemon, not the interactive REPL
     restart: unless-stopped
     env_file: [.env]
     environment:
