@@ -18,14 +18,20 @@ computing its own numbers (same guardrail as every skill's **Nunca** block).
 
 ## 5.1 — Daily morning briefing (~7am)
 
-> Todos los días a las 7:00 am (hora de Lima) corré `python3 /opt/data/bin/vida.py pendiente today`
-> y `python3 /opt/data/bin/vida.py gym progress --ejercicio <el ejercicio de mi rutina de hoy según
-> sobre-mi>`, y mandame un resumen breve por Telegram: mis pendientes de hoy con su prioridad, y mi
-> objetivo de entrenamiento del día si tengo rutina asignada hoy. Nunca inventes pendientes ni
-> pesos que no vengan del JSON de cada comando; si `pendiente today` viene vacío decime "sin
-> pendientes hoy".
+> Todos los días a las 7:00 am (hora de Lima) corré `python3 /opt/data/bin/vida.py rutina today` y
+> `python3 /opt/data/bin/vida.py gym progress --ejercicio <el ejercicio de mi rutina de hoy según
+> sobre-mi>`, y mandame un resumen breve por Telegram con tres partes: (1) mi rutina de hoy — por
+> cada bloque de `data.bloques`, el `nombre` del bloque y los ítems que todavía tienen
+> `hecho_hoy: false`, más el `resumen.pct` tal cual viene en el JSON; (2) mis pendientes de hoy con
+> su prioridad, leídos de `data.pendientes` del mismo comando; (3) mi objetivo de entrenamiento del
+> día si tengo rutina asignada hoy. Nunca inventes ítems, pendientes ni pesos que no vengan del JSON;
+> nunca calcules vos el porcentaje — leé `resumen.pct`. Si `data.pendientes` viene vacío decime "sin
+> pendientes hoy"; si `data.bloques` viene vacío decime "no tenés rutina registrada".
 
-Satisfies spec §5 "Morning briefing delivered unprompted".
+Satisfies spec §5 "Morning briefing delivered unprompted". Extended by `daily-routine-tracker` D-5:
+the job now runs **two** commands instead of three — `rutina today` already returns the pendientes,
+so `pendiente today` is dropped from this job (D-6). Re-register with §5.5's smoke-test procedure
+before trusting it.
 
 ## 5.2 — Tarjeta due-date alert
 
@@ -55,6 +61,20 @@ the configurable part, adjustable by editing this registered job's wording, not 
 > totales ni conviertas moneda.
 
 Satisfies spec §5 "Scheduled jobs" (weekly expense summary).
+
+## 5.6 — Weekly routine adherence summary
+
+> Todos los lunes a las 8:15 am corré
+> `python3 /opt/data/bin/vida.py rutina stats --desde <lunes de la semana pasada> --hasta <domingo
+> de la semana pasada>` y mandame por Telegram: el `global.pct` de la semana, y por cada entrada de
+> `por_bloque` el `nombre` del bloque con su `pct`. Destacá los ítems con el `pct` más bajo para
+> que sepa dónde estoy fallando. Leé todos los porcentajes tal cual vienen del JSON — no los
+> recalculés ni los redondees distinto. Si algún `pct` es `null`, decí que no hay suficiente
+> historial para ese ítem en vez de reportar 0%.
+
+Satisfies `daily-routine-tracker` D-6. Scheduled at 08:15 rather than 08:00 so it does not collide
+with §5.4's weekly expense summary — two Telegram messages arriving in the same minute read as one
+wall of text and get skimmed.
 
 ## 5.5 — Smoke test procedure (design §13 step 7)
 
