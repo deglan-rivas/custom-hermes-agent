@@ -1341,5 +1341,205 @@ class TestRutinaSubcomandos(unittest.TestCase):
         self.assertEqual(payload["codigo"], "fecha_invalida")
 
 
+# ---------------------------------------------------------------------------
+# pendientes-lifecycle (G4 — recurring reset via pendientes_completado)
+# ---------------------------------------------------------------------------
+
+class TestPendienteRecurrente(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmpdir.name, "vida.db")
+        self.env = dict(os.environ, VIDA_DB=self.db_path)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _run(self, *args):
+        return subprocess.run(
+            [sys.executable, VIDA_PY, *args], env=self.env, capture_output=True, text=True
+        )
+
+    def _assert_json_ok(self, result, expect_ok=True, expect_exit=0):
+        self.assertEqual(result.returncode, expect_exit, msg=result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["ok"], expect_ok)
+        return payload
+
+    def _add(self, titulo, **kwargs):
+        args = ["pendiente", "add", "--titulo", titulo]
+        for flag, val in kwargs.items():
+            args += [f"--{flag.replace('_', '-')}", str(val)]
+        return self._assert_json_ok(self._run(*args))["data"]
+
+    def test_recurrente_diaria_desaparece_hoy_tras_done(self):
+        p = self._add("Tomar la pastilla", recurrencia="diaria")
+        self._assert_json_ok(self._run("pendiente", "done", "--id", str(p["id"])))
+
+        result = self._run("pendiente", "today")
+        payload = self._assert_json_ok(result)
+        self.assertFalse(any(x["id"] == p["id"] for x in payload["data"]["pendientes"]))
+
+    def test_recurrente_diaria_reaparece_manana(self):
+        p = self._add("Tomar la pastilla", recurrencia="diaria")
+        ayer = (date.today() - timedelta(days=1)).isoformat()
+        conn = vida.get_connection(self.db_path)
+        with conn:
+            conn.execute(
+                "INSERT INTO pendientes_completado (pendiente_id, fecha) VALUES (?, ?)",
+                (p["id"], ayer),
+            )
+        conn.close()
+
+        result = self._run("pendiente", "today")
+        payload = self._assert_json_ok(result)
+        self.assertTrue(any(x["id"] == p["id"] for x in payload["data"]["pendientes"]))
+
+    def test_recurrente_no_cambia_de_estado(self):
+        p = self._add("Tomar la pastilla", recurrencia="diaria")
+        result = self._run("pendiente", "done", "--id", str(p["id"]))
+        payload = self._assert_json_ok(result)
+        self.assertEqual(payload["data"]["estado"], "abierto")
+        self.assertIsNotNone(payload["data"]["completado_en"])
+
+    def test_recurrente_semanal_no_aparece_fuera_de_su_dia(self):
+        hoy = date.today()
+        otro_dia = (hoy.weekday() + 3) % 7
+        dias_semana = {0: "lun", 1: "mar", 2: "mie", 3: "jue", 4: "vie", 5: "sab", 6: "dom"}
+        p = self._add("Sacar la basura", recurrencia=f"semanal:{dias_semana[otro_dia]}")
+
+        result = self._run("pendiente", "today")
+        payload = self._assert_json_ok(result)
+        self.assertFalse(any(x["id"] == p["id"] for x in payload["data"]["pendientes"]))
+
+    def test_recurrente_mensual_respeta_clamp(self):
+        # mensual:31 clamped to the last day of a 30-day month (design D-0/D-6
+        # inherits _recurrencia_vence_hoy, unchanged clamp logic).
+        p = self._add("Pagar alquiler", recurrencia="mensual:31")
+        conn = vida.get_connection(self.db_path)
+        try:
+            row = conn.execute("SELECT recurrencia FROM pendientes WHERE id = ?", (p["id"],)).fetchone()
+            self.assertEqual(row["recurrencia"], "mensual:31")
+            # Directly exercise the pure helper for the clamp edge case (30-day month).
+            self.assertTrue(vida._recurrencia_vence_hoy("mensual:31", date(2025, 4, 30)))
+            self.assertFalse(vida._recurrencia_vence_hoy("mensual:31", date(2025, 4, 29)))
+        finally:
+            conn.close()
+
+    def test_done_dos_veces_mismo_dia_es_idempotente(self):
+        p = self._add("Tomar la pastilla", recurrencia="diaria")
+        self._assert_json_ok(self._run("pendiente", "done", "--id", str(p["id"])))
+        result = self._run("pendiente", "done", "--id", str(p["id"]))
+        payload = self._assert_json_ok(result)
+        self.assertTrue(payload["data"]["ya_estaba"])
+
+        conn = vida.get_connection(self.db_path)
+        try:
+            n = conn.execute(
+                "SELECT COUNT(*) AS n FROM pendientes_completado WHERE pendiente_id = ?", (p["id"],)
+            ).fetchone()["n"]
+            self.assertEqual(n, 1)
+        finally:
+            conn.close()
+
+    def test_one_shot_done_sigue_marcando_hecho(self):
+        p = self._add("Pagar luz")
+        result = self._run("pendiente", "done", "--id", str(p["id"]))
+        payload = self._assert_json_ok(result)
+        self.assertEqual(payload["data"]["estado"], "hecho")
+
+        conn = vida.get_connection(self.db_path)
+        try:
+            n = conn.execute(
+                "SELECT COUNT(*) AS n FROM pendientes_completado WHERE pendiente_id = ?", (p["id"],)
+            ).fetchone()["n"]
+            self.assertEqual(n, 1)
+        finally:
+            conn.close()
+
+
+# ---------------------------------------------------------------------------
+# pendiente today (G1 — sin_fecha, unbounded, sort)
+# ---------------------------------------------------------------------------
+
+class TestPendienteToday(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmpdir.name, "vida.db")
+        self.env = dict(os.environ, VIDA_DB=self.db_path)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _run(self, *args):
+        return subprocess.run(
+            [sys.executable, VIDA_PY, *args], env=self.env, capture_output=True, text=True
+        )
+
+    def _assert_json_ok(self, result, expect_ok=True, expect_exit=0):
+        self.assertEqual(result.returncode, expect_exit, msg=result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["ok"], expect_ok)
+        return payload
+
+    def _add(self, titulo, **kwargs):
+        args = ["pendiente", "add", "--titulo", titulo]
+        for flag, val in kwargs.items():
+            args += [f"--{flag.replace('_', '-')}", str(val)]
+        return self._assert_json_ok(self._run(*args))["data"]
+
+    def _today(self):
+        result = self._run("pendiente", "today")
+        return self._assert_json_ok(result)["data"]["pendientes"]
+
+    def test_sin_fecha_aparece_y_marca_flag(self):
+        p = self._add("Llamar al dentista")
+        items = self._today()
+        item = next(x for x in items if x["id"] == p["id"])
+        self.assertTrue(item["sin_fecha"])
+
+    def test_con_fecha_marca_sin_fecha_false(self):
+        hoy = date.today().isoformat()
+        p = self._add("Pagar luz", fecha=hoy)
+        items = self._today()
+        item = next(x for x in items if x["id"] == p["id"])
+        self.assertFalse(item["sin_fecha"])
+
+    def test_sin_limite(self):
+        for i in range(15):
+            self._add(f"Tarea {i}")
+        items = self._today()
+        self.assertEqual(len(items), 15)
+
+    def test_orden_prioridad_luego_dificultad(self):
+        self._add("dificil", prioridad="alta", dificultad="dificil")
+        self._add("facil", prioridad="alta", dificultad="facil")
+        self._add("media", prioridad="alta", dificultad="media")
+        items = self._today()
+        self.assertEqual([i["titulo"] for i in items], ["facil", "media", "dificil"])
+
+    def test_dificultad_null_ordena_como_media(self):
+        # D-7 (design.md, binding over spec.md's prose): NULL ties with
+        # 'media' (rank 1), so it sorts BEFORE 'dificil' (rank 2) -- not last.
+        # Behaviour-preserving: every production row has dificultad = NULL,
+        # so today's order stays prioridad -> hora until users classify.
+        self._add("dificil", prioridad="media", dificultad="dificil")
+        self._add("sin_clasificar", prioridad="media")
+        items = self._today()
+        titulos = [i["titulo"] for i in items]
+        self.assertLess(titulos.index("sin_clasificar"), titulos.index("dificil"))
+
+    def test_orden_desempata_por_hora_luego_id(self):
+        p1 = self._add("segundo", prioridad="alta", hora="10:00")
+        p2 = self._add("primero", prioridad="alta", hora="09:00")
+        items = self._today()
+        self.assertEqual([i["id"] for i in items], [p2["id"], p1["id"]])
+
+    def test_vencidos_siguen_apareciendo(self):
+        ayer = (date.today() - timedelta(days=1)).isoformat()
+        p = self._add("Vencido", fecha=ayer)
+        items = self._today()
+        self.assertTrue(any(x["id"] == p["id"] for x in items))
+
+
 if __name__ == "__main__":
     unittest.main()

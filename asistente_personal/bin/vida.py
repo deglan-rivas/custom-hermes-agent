@@ -752,30 +752,56 @@ def _recurrencia_vence_hoy(recurrencia: str, hoy: date) -> bool:
     return False
 
 
+PRIORIDAD_ORDEN = {"alta": 0, "media": 1, "baja": 2}
+DIFICULTAD_ORDEN = {"facil": 0, "media": 1, "dificil": 2}   # NULL -> 1 (D-7)
+
+
 def cmd_pendiente_today(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
     # No code change needed for `dificultad`: SELECT * (via _row_to_dict) picks
     # up the new column for free. Additive contract -- a new key appears in
     # the payload, none disappear (daily-routine-tracker design.md §5.6).
     hoy = _hoy()
+    hoy_iso = hoy.isoformat()
     incluir_vencidos = args.incluir_vencidos if args.incluir_vencidos is not None else True
 
-    query = "SELECT * FROM pendientes WHERE estado = 'abierto'"
-    rows = conn.execute(query).fetchall()
+    hechos_hoy = {
+        r["pendiente_id"]
+        for r in conn.execute(
+            "SELECT pendiente_id FROM pendientes_completado WHERE fecha = ?", (hoy_iso,)
+        )
+    }  # one query, no N+1
 
-    prioridad_orden = {"alta": 0, "media": 1, "baja": 2}
+    rows = conn.execute("SELECT * FROM pendientes WHERE estado = 'abierto'").fetchall()
+
     items = []
     for r in rows:
-        vence_hoy = r["fecha_objetivo"] == hoy.isoformat()
-        vencido = (
-            incluir_vencidos
-            and r["fecha_objetivo"] is not None
-            and r["fecha_objetivo"] < hoy.isoformat()
-        )
-        recurrente_hoy = bool(r["recurrencia"]) and _recurrencia_vence_hoy(r["recurrencia"], hoy)
-        if vence_hoy or vencido or recurrente_hoy:
-            items.append(_row_to_dict(r))
+        if r["recurrencia"]:  # exclusive branch (D-6): recurring rows never
+            # match the generic sin_fecha catch-all below.
+            incluir = (
+                _recurrencia_vence_hoy(r["recurrencia"], hoy)
+                and r["id"] not in hechos_hoy
+            )
+        else:
+            vence_hoy = r["fecha_objetivo"] == hoy_iso
+            vencido = (
+                incluir_vencidos
+                and r["fecha_objetivo"] is not None
+                and r["fecha_objetivo"] < hoy_iso
+            )
+            sin_fecha = r["fecha_objetivo"] is None  # G-1: the gap being closed
+            incluir = vence_hoy or vencido or sin_fecha
 
-    items.sort(key=lambda i: (prioridad_orden.get(i["prioridad"], 9), i["hora"] or "99:99"))
+        if incluir:
+            item = _row_to_dict(r)
+            item["sin_fecha"] = r["fecha_objetivo"] is None  # derived, never persisted
+            items.append(item)
+
+    items.sort(key=lambda i: (
+        PRIORIDAD_ORDEN.get(i["prioridad"], 9),
+        DIFICULTAD_ORDEN.get(i["dificultad"], 1),  # NULL sorts as media
+        i["hora"] or "99:99",
+        i["id"],  # D-8: deterministic final tiebreak
+    ))
     return {"pendientes": items}
 
 
@@ -784,13 +810,43 @@ def cmd_pendiente_done(conn: sqlite3.Connection, args: argparse.Namespace) -> di
     if row is None:
         raise VidaError(f"no existe pendiente con id {args.id}", "no_encontrado")
 
-    with conn:
-        conn.execute(
-            "UPDATE pendientes SET estado = 'hecho', completado_en = ? WHERE id = ?",
-            (datetime.now().isoformat(timespec="seconds"), args.id),
-        )
+    ahora = datetime.now()
+    fecha_iso = ahora.date().isoformat()
+    marca = ahora.isoformat(timespec="seconds")  # same pairing as the backfill (D-5)
+    recurrente = bool(row["recurrencia"])
+
+    ya = conn.execute(
+        "SELECT creado_en FROM pendientes_completado WHERE pendiente_id = ? AND fecha = ?",
+        (args.id, fecha_iso),
+    ).fetchone()
+
+    if ya is None:
+        with conn:
+            conn.execute(
+                "INSERT INTO pendientes_completado (pendiente_id, fecha, creado_en, fuente) "
+                "VALUES (?, ?, ?, ?)",
+                (args.id, fecha_iso, marca, getattr(args, "fuente", None) or "cli"),
+            )
+            if recurrente:
+                # D-2: lifecycle never ends; only the "last completion" pointer moves.
+                conn.execute(
+                    "UPDATE pendientes SET completado_en = ? WHERE id = ?", (marca, args.id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE pendientes SET estado = 'hecho', completado_en = ? WHERE id = ?",
+                    (marca, args.id),
+                )
+
     row = conn.execute("SELECT * FROM pendientes WHERE id = ?", (args.id,)).fetchone()
-    return _row_to_dict(row)
+    payload = _row_to_dict(row)
+    payload.update({
+        "fecha": fecha_iso,
+        "ya_estaba": ya is not None,
+        "hecho_a_las": ya["creado_en"] if ya is not None else marca,
+        "recurrente": recurrente,
+    })
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -1267,6 +1323,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     pendiente_done = pendiente_sub.add_parser("done")
     pendiente_done.add_argument("--id", type=int, required=True)
+    pendiente_done.add_argument("--fuente")
     pendiente_done.set_defaults(func=cmd_pendiente_done)
 
     rutina = subparsers.add_parser("rutina")
