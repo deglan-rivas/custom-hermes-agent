@@ -1,0 +1,6 @@
+# Rendered/host-specific artifacts (real paths, real usernames baked in — not portable)
+*.rendered
+
+# Editor / OS cruft
+.DS_Store
+*.swp
