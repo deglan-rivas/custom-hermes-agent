@@ -31,6 +31,10 @@ set -u
 WHISPER_URL="${WHISPER_URL:-http://whisper:8000}"
 AUDIO_FILE="${1:-}"
 ACTION="asr.transcribe"
+# Notas de voz del usuario son en español -- sin este hint speaches hace
+# auto-detect de idioma y puede confundirlo con baja confianza (visto en vivo:
+# detectó "en" con 0.34 de probabilidad en un audio real en español).
+WHISPER_LANGUAGE="${WHISPER_LANGUAGE:-es}"
 # Debe coincidir con PRELOAD_MODELS en docker-compose.yml (servicio whisper).
 WHISPER_MODEL="${WHISPER_MODEL:-Systran/faster-whisper-large-v3}"
 
@@ -52,6 +56,7 @@ command -v python3 >/dev/null 2>&1 || fail "python3_no_disponible" "python3 no e
 RESPUESTA="$(curl -fsS --max-time 90 \
   -F "file=@${AUDIO_FILE}" \
   -F "model=${WHISPER_MODEL}" \
+  -F "language=${WHISPER_LANGUAGE}" \
   "${WHISPER_URL}/v1/audio/transcriptions" 2>/dev/null)" || {
   fail "whisper_no_disponible" "no se pudo contactar ${WHISPER_URL}/v1/audio/transcriptions (servicio caido, timeout, o F0.2/whisper aun no desplegado -- ver ops/verify-gpu.sh)"
 }
