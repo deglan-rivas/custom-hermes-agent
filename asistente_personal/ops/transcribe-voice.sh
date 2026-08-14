@@ -19,6 +19,11 @@
 # of crashing. The calling skill MUST then ask the user to type the message -- never
 # silently drop it, never retry in a loop.
 #
+# --max-time 90 (not 30): speaches' PRELOAD_MODELS only warms the model into RAM/disk
+# cache, not VRAM -- the first request after each container start/restart pays a real
+# cold VRAM load on top of inference. 30s was too tight and caused spurious timeouts
+# on the first note after a restart.
+#
 # Usage: ops/transcribe-voice.sh <path-to-downloaded-audio-file>
 
 set -u
@@ -44,7 +49,7 @@ print(json.dumps({"ok": False, "action": sys.argv[1], "error": sys.argv[2], "cod
 command -v curl >/dev/null 2>&1 || fail "curl_no_disponible" "curl no esta instalado"
 command -v python3 >/dev/null 2>&1 || fail "python3_no_disponible" "python3 no esta instalado"
 
-RESPUESTA="$(curl -fsS --max-time 30 \
+RESPUESTA="$(curl -fsS --max-time 90 \
   -F "file=@${AUDIO_FILE}" \
   -F "model=${WHISPER_MODEL}" \
   "${WHISPER_URL}/v1/audio/transcriptions" 2>/dev/null)" || {
