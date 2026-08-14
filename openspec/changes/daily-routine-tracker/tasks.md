@@ -100,17 +100,17 @@ Unit 1 alone (schema.sql + vida.py + test_vida.py) likely exceeds 400 lines on i
 
 ## Phase 3: `skills/rutina-diaria/SKILL.md`
 
-- [ ] 3.1 Create `asistente_personal/skills/rutina-diaria/SKILL.md` with YAML frontmatter (`name`, trigger-phrase `description`) per design.md §6.
-- [ ] 3.2 Write "Cuándo se activa" section: setup/daily/query trigger phrases, explicit contrast with `agenda-personal` ("recordame X" = pendiente vs "todos los días hago X" = rutina).
-- [ ] 3.3 Write "Comando exacto" section: literal `python3 /opt/data/bin/vida.py rutina ...` invocations in usage order (today → done → bloque-add/item-add → historial/stats).
-- [ ] 3.4 Write "Mapeo de lenguaje natural → flags" table per design.md §6.
-- [ ] 3.5 Write "Cómo responder" section: read `resumen.pct`, `ya_estaba` handling, `pct: null` handling, echo-back after bloque-add/item-add.
-- [ ] 3.6 Write "Nunca" section: shared Fase 1 block verbatim + two domain-specific lines (never guess `item_id`, never compute percentages/streaks locally).
+- [x] 3.1 Create `asistente_personal/skills/rutina-diaria/SKILL.md` with YAML frontmatter (`name`, trigger-phrase `description`) per design.md §6.
+- [x] 3.2 Write "Cuándo se activa" section: setup/daily/query trigger phrases, explicit contrast with `agenda-personal` ("recordame X" = pendiente vs "todos los días hago X" = rutina).
+- [x] 3.3 Write "Comando exacto" section: literal `python3 /opt/data/bin/vida.py rutina ...` invocations in usage order (today → done → bloque-add/item-add → historial/stats).
+- [x] 3.4 Write "Mapeo de lenguaje natural → flags" table per design.md §6.
+- [x] 3.5 Write "Cómo responder" section: read `resumen.pct`, `ya_estaba` handling, `pct: null` handling, echo-back after bloque-add/item-add.
+- [x] 3.6 Write "Nunca" section: shared Fase 1 block verbatim + two domain-specific lines (never guess `item_id`, never compute percentages/streaks locally).
 
 ## Phase 4: `ops/cron-jobs.md` Edits
 
-- [ ] 4.1 Edit existing §5.1 (7am briefing): replace quoted message per design.md §9.1 — drop `pendiente today` call (rutina today now returns pendientes too), add rutina checklist reporting instructions, note "Extended by daily-routine-tracker D-5. Re-register with §5.5's smoke-test procedure."
-- [ ] 4.2 Add new §5.6 (Monday 8:15am adherence summary) per design.md §9.2, inserted before the existing §5.5 smoke-test section.
+- [x] 4.1 Edit existing §5.1 (7am briefing): replace quoted message per design.md §9.1 — drop `pendiente today` call (rutina today now returns pendientes too), add rutina checklist reporting instructions, note "Extended by daily-routine-tracker D-5. Re-register with §5.5's smoke-test procedure."
+- [x] 4.2 Add new §5.6 (Monday 8:15am adherence summary) per design.md §9.2, inserted before the existing §5.5 smoke-test section.
 
 ## Phase 5: Rollout / Verification (production-gated, sequential, manual)
 
