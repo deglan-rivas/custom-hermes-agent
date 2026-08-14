@@ -1,7 +1,14 @@
--- vida.db schema — Hermes personal assistant (Fase 1)
--- Design ref: openspec/changes/hermes-personal-assistant/design.md §6
+-- vida.db schema — Hermes personal assistant
+-- Design ref: openspec/changes/hermes-personal-assistant/design.md §6,
+--             openspec/changes/daily-routine-tracker/design.md §3 (v2 additions)
 --
--- Applied idempotently by vida.py on first run (schema_version missing).
+-- This file is the bootstrap for a FRESH database only. It must stay
+-- schema-equivalent to a version-1 database migrated through every block in
+-- vida.py's MIGRATIONS (D-0.4) -- enforced by
+-- test_fresh_bootstrap_and_migrated_v1_have_identical_schema in
+-- asistente_personal/tests/test_vida.py. An existing database is brought up
+-- to date by vida.py's versioned migration runner (_aplicar_migraciones),
+-- not by this file.
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -75,7 +82,8 @@ CREATE TABLE IF NOT EXISTS pendientes (
     recurrencia     TEXT,
     completado_en   TEXT,
     creado_en       TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
-    fuente          TEXT    NOT NULL DEFAULT 'telegram' CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron'))
+    fuente          TEXT    NOT NULL DEFAULT 'telegram' CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron')),
+    dificultad      TEXT    CHECK (dificultad IS NULL OR dificultad IN ('facil', 'media', 'dificil'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_pend_estado_fecha ON pendientes(estado, fecha_objetivo);
@@ -85,4 +93,43 @@ CREATE TABLE IF NOT EXISTS schema_version (
     aplicado_en TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
-INSERT OR IGNORE INTO schema_version (version) VALUES (1);
+-- rutina_* (daily-routine-tracker, schema_version 2) ------------------------
+
+CREATE TABLE IF NOT EXISTS rutina_bloques (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre         TEXT    NOT NULL UNIQUE,
+    hora_objetivo  TEXT,
+    orden          INTEGER NOT NULL DEFAULT 0,
+    activo         INTEGER NOT NULL DEFAULT 1 CHECK (activo IN (0, 1)),
+    creado_en      TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    fuente         TEXT    NOT NULL DEFAULT 'telegram'
+                           CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron'))
+);
+
+CREATE TABLE IF NOT EXISTS rutina_items (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    bloque_id  INTEGER NOT NULL REFERENCES rutina_bloques(id) ON DELETE RESTRICT,
+    nombre     TEXT    NOT NULL,
+    orden      INTEGER NOT NULL DEFAULT 0,
+    activo     INTEGER NOT NULL DEFAULT 1 CHECK (activo IN (0, 1)),
+    creado_en  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    fuente     TEXT    NOT NULL DEFAULT 'telegram'
+                       CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron')),
+    UNIQUE (bloque_id, nombre)
+);
+
+CREATE TABLE IF NOT EXISTS rutina_completado (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id    INTEGER NOT NULL REFERENCES rutina_items(id) ON DELETE RESTRICT,
+    fecha      TEXT    NOT NULL DEFAULT (date('now', 'localtime')),
+    creado_en  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    fuente     TEXT    NOT NULL DEFAULT 'telegram'
+                       CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron')),
+    UNIQUE (item_id, fecha)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rutina_items_bloque ON rutina_items(bloque_id, orden);
+CREATE INDEX IF NOT EXISTS idx_rutina_compl_fecha ON rutina_completado(fecha);
+CREATE INDEX IF NOT EXISTS idx_rutina_compl_item_fecha ON rutina_completado(item_id, fecha);
+
+INSERT OR IGNORE INTO schema_version (version) VALUES (1), (2);

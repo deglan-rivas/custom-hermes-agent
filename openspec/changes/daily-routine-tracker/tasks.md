@@ -27,26 +27,26 @@ Unit 1 alone (schema.sql + vida.py + test_vida.py) likely exceeds 400 lines on i
 
 ## Phase 0: Migration Mechanism (highest risk — sequence first, P0.1-gated)
 
-- [ ] 0.1 In `asistente_personal/bin/vida.py`, add `TARGET_SCHEMA_VERSION = 2` and `MIGRATIONS: dict[int, tuple[str, ...]]` with the version-2 block (dificultad ALTER + 3 rutina_* CREATE TABLE + 3 CREATE INDEX), per design.md §3.
-- [ ] 0.2 Add `_schema_version(conn)` helper: `SELECT COALESCE(MAX(version), 0) FROM schema_version`.
-- [ ] 0.3 Rewrite `_ensure_schema()` (replaces `bin/vida.py:152-160`): fresh DB → `executescript(schema.sql)`; existing DB → call `_aplicar_migraciones(conn)`.
-- [ ] 0.4 Add `_aplicar_migraciones(conn)`: per-version loop, `conn.isolation_level = None`, explicit `BEGIN IMMEDIATE` / per-statement `execute` / `INSERT INTO schema_version` last / `COMMIT`, `ROLLBACK` + re-raise on exception, restore `isolation_level` in `finally`. Raise `VidaError("migracion_faltante")` if a version has no MIGRATIONS entry.
-- [ ] 0.5 Update `asistente_personal/data/schema.sql`: append `dificultad` column to `pendientes` (last position, per D-1), append 3 `rutina_*` tables + 3 indexes with `IF NOT EXISTS`, change final line to `INSERT OR IGNORE INTO schema_version (version) VALUES (1), (2);`, update header comment per design.md §3 item 4.
-- [ ] 0.6 Extend `health` subcommand (`vida.py`) so `tablas` includes `rutina_bloques`, `rutina_items`, `rutina_completado` (needed for P0.1 row-count verification).
+- [x] 0.1 In `asistente_personal/bin/vida.py`, add `TARGET_SCHEMA_VERSION = 2` and `MIGRATIONS: dict[int, tuple[str, ...]]` with the version-2 block (dificultad ALTER + 3 rutina_* CREATE TABLE + 3 CREATE INDEX), per design.md §3.
+- [x] 0.2 Add `_schema_version(conn)` helper: `SELECT COALESCE(MAX(version), 0) FROM schema_version`.
+- [x] 0.3 Rewrite `_ensure_schema()` (replaces `bin/vida.py:152-160`): fresh DB → `executescript(schema.sql)`; existing DB → call `_aplicar_migraciones(conn)`.
+- [x] 0.4 Add `_aplicar_migraciones(conn)`: per-version loop, `conn.isolation_level = None`, explicit `BEGIN IMMEDIATE` / per-statement `execute` / `INSERT INTO schema_version` last / `COMMIT`, `ROLLBACK` + re-raise on exception, restore `isolation_level` in `finally`. Raise `VidaError("migracion_faltante")` if a version has no MIGRATIONS entry.
+- [x] 0.5 Update `asistente_personal/data/schema.sql`: append `dificultad` column to `pendientes` (last position, per D-1), append 3 `rutina_*` tables + 3 indexes with `IF NOT EXISTS`, change final line to `INSERT OR IGNORE INTO schema_version (version) VALUES (1), (2);`, update header comment per design.md §3 item 4.
+- [x] 0.6 Extend `health` subcommand (`vida.py`) so `tablas` includes `rutina_bloques`, `rutina_items`, `rutina_completado` (needed for P0.1 row-count verification).
 
 ### Migration Tests (test_vida.py — TestMigracionV1aV2)
 
-- [ ] 0.7 RED: Write `TestMigracionV1aV2` fixture — helper that builds a v1 DB from a frozen v1 DDL constant (NOT the live `schema.sql`), seeds sample rows in every v1 table.
-- [ ] 0.8 RED/GREEN: `test_v1_db_is_migrated_to_v2_on_open` — `MAX(version) == 2`, rows for version 1 and 2 exist.
-- [ ] 0.9 RED/GREEN: `test_migration_preserves_every_row` — row counts + spot-checked row identical before/after (automates P0.1's row-count criterion).
-- [ ] 0.10 RED/GREEN: `test_existing_pendientes_get_null_dificultad`.
-- [ ] 0.11 RED/GREEN: `test_new_tables_exist_after_migration`.
-- [ ] 0.12 RED/GREEN: `test_fresh_bootstrap_and_migrated_v1_have_identical_schema` — compare `PRAGMA table_info`/`index_list`/`index_info`/`foreign_key_list` between fresh-bootstrap DB and v1-then-migrated DB (D-0.4 guard; do NOT compare raw `sqlite_master.sql` text).
-- [ ] 0.13 RED/GREEN: `test_migration_is_idempotent` — opening an already-v2 DB twice more is a no-op.
-- [ ] 0.14 RED/GREEN: `test_failed_migration_rolls_back_completely` — monkeypatch `MIGRATIONS[2]` with an invalid last statement, assert `MAX(version) == 1` and no `rutina_*` tables/`dificultad` column exist after the failure (validates the `BEGIN IMMEDIATE` transactional design).
-- [ ] 0.15 RED/GREEN: `test_missing_migration_definition_reports_json_error` — patched `TARGET_SCHEMA_VERSION = 3`, no `MIGRATIONS[3]` → `codigo == "migracion_faltante"`.
-- [ ] 0.16 RED/GREEN: `test_fresh_db_never_runs_migrations` — patch `MIGRATIONS = {}`, confirm bootstrap still succeeds via `schema.sql` alone.
-- [ ] 0.17 Run full existing suite (47 tests) + new migration tests locally — confirm zero regressions before proceeding to any other phase.
+- [x] 0.7 RED: Write `TestMigracionV1aV2` fixture — helper that builds a v1 DB from a frozen v1 DDL constant (NOT the live `schema.sql`), seeds sample rows in every v1 table.
+- [x] 0.8 RED/GREEN: `test_v1_db_is_migrated_to_v2_on_open` — `MAX(version) == 2`, rows for version 1 and 2 exist.
+- [x] 0.9 RED/GREEN: `test_migration_preserves_every_row` — row counts + spot-checked row identical before/after (automates P0.1's row-count criterion).
+- [x] 0.10 RED/GREEN: `test_existing_pendientes_get_null_dificultad`.
+- [x] 0.11 RED/GREEN: `test_new_tables_exist_after_migration`.
+- [x] 0.12 RED/GREEN: `test_fresh_bootstrap_and_migrated_v1_have_identical_schema` — compare `PRAGMA table_info`/`index_list`/`index_info`/`foreign_key_list` between fresh-bootstrap DB and v1-then-migrated DB (D-0.4 guard; do NOT compare raw `sqlite_master.sql` text).
+- [x] 0.13 RED/GREEN: `test_migration_is_idempotent` — opening an already-v2 DB twice more is a no-op.
+- [x] 0.14 RED/GREEN: `test_failed_migration_rolls_back_completely` — monkeypatch `MIGRATIONS[2]` with an invalid last statement, assert `MAX(version) == 1` and no `rutina_*` tables/`dificultad` column exist after the failure (validates the `BEGIN IMMEDIATE` transactional design).
+- [x] 0.15 RED/GREEN: `test_missing_migration_definition_reports_json_error` — patched `TARGET_SCHEMA_VERSION = 3`, no `MIGRATIONS[3]` → `codigo == "migracion_faltante"`.
+- [x] 0.16 RED/GREEN: `test_fresh_db_never_runs_migrations` — patch `MIGRATIONS = {}`, confirm bootstrap still succeeds via `schema.sql` alone.
+- [x] 0.17 Run full existing suite (47 tests) + new migration tests locally — confirm zero regressions before proceeding to any other phase.
 
 **GATE — do not proceed past this point until 0.1-0.17 are green locally.** This is the highest-risk piece; nothing below should land in the same commit sequence without this passing.
 

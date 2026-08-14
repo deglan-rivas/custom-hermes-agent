@@ -42,6 +42,61 @@ INCREMENTO_DEFAULT_KG = 2.5
 METODOS_PAGO = ("efectivo", "debito", "credito", "yape", "plin", "transferencia")
 PRIORIDADES = ("alta", "media", "baja")
 ESTADOS_PENDIENTE = ("abierto", "hecho", "cancelado")
+DIFICULTADES = ("facil", "media", "dificil")
+
+# ---------------------------------------------------------------------------
+# Versioned schema migrations (daily-routine-tracker design.md §3, D-0)
+# ---------------------------------------------------------------------------
+
+TARGET_SCHEMA_VERSION = 2
+
+# Migrations are ADDITIVE ONLY (D-0.5): add tables/columns/indexes, never drop
+# or rewrite. That convention is what makes "revert the code, keep the data"
+# safe. Each version maps to a tuple of INDIVIDUAL statements -- no ";"
+# splitting, ever.
+MIGRATIONS: dict[int, tuple[str, ...]] = {
+    2: (
+        "ALTER TABLE pendientes ADD COLUMN dificultad TEXT "
+        "CHECK (dificultad IS NULL OR dificultad IN ('facil', 'media', 'dificil'))",
+
+        """CREATE TABLE rutina_bloques (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre         TEXT    NOT NULL UNIQUE,
+            hora_objetivo  TEXT,
+            orden          INTEGER NOT NULL DEFAULT 0,
+            activo         INTEGER NOT NULL DEFAULT 1 CHECK (activo IN (0, 1)),
+            creado_en      TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+            fuente         TEXT    NOT NULL DEFAULT 'telegram'
+                                   CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron'))
+        )""",
+
+        """CREATE TABLE rutina_items (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            bloque_id  INTEGER NOT NULL REFERENCES rutina_bloques(id) ON DELETE RESTRICT,
+            nombre     TEXT    NOT NULL,
+            orden      INTEGER NOT NULL DEFAULT 0,
+            activo     INTEGER NOT NULL DEFAULT 1 CHECK (activo IN (0, 1)),
+            creado_en  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+            fuente     TEXT    NOT NULL DEFAULT 'telegram'
+                               CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron')),
+            UNIQUE (bloque_id, nombre)
+        )""",
+
+        """CREATE TABLE rutina_completado (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id    INTEGER NOT NULL REFERENCES rutina_items(id) ON DELETE RESTRICT,
+            fecha      TEXT    NOT NULL DEFAULT (date('now', 'localtime')),
+            creado_en  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+            fuente     TEXT    NOT NULL DEFAULT 'telegram'
+                               CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron')),
+            UNIQUE (item_id, fecha)
+        )""",
+
+        "CREATE INDEX idx_rutina_items_bloque ON rutina_items(bloque_id, orden)",
+        "CREATE INDEX idx_rutina_compl_fecha ON rutina_completado(fecha)",
+        "CREATE INDEX idx_rutina_compl_item_fecha ON rutina_completado(item_id, fecha)",
+    ),
+}
 
 
 class VidaError(Exception):
@@ -149,15 +204,50 @@ def get_connection(db_path: str | None = None) -> sqlite3.Connection:
     return conn
 
 
+def _schema_version(conn: sqlite3.Connection) -> int:
+    row = conn.execute("SELECT COALESCE(MAX(version), 0) AS v FROM schema_version").fetchone()
+    return int(row["v"])
+
+
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    row = conn.execute(
+    existe = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
     ).fetchone()
-    if row is not None:
+    if existe is None:
+        # Fresh database: schema.sql IS the latest shape and inserts every
+        # version row up front (D-0.4).
+        with open(SCHEMA_PATH, "r", encoding="utf-8") as fh:
+            conn.executescript(fh.read())
+        conn.commit()
         return
-    with open(SCHEMA_PATH, "r", encoding="utf-8") as fh:
-        conn.executescript(fh.read())
-    conn.commit()
+    _aplicar_migraciones(conn)
+
+
+def _aplicar_migraciones(conn: sqlite3.Connection) -> None:
+    actual = _schema_version(conn)
+    if actual >= TARGET_SCHEMA_VERSION:
+        return  # up to date, or newer DB + older code -- safe, migrations are additive (D-0.5)
+
+    previo = conn.isolation_level
+    conn.isolation_level = None  # manual control: sqlite3 does NOT wrap DDL (D-0.3)
+    try:
+        for version in range(actual + 1, TARGET_SCHEMA_VERSION + 1):
+            sentencias = MIGRATIONS.get(version)
+            if sentencias is None:
+                raise VidaError(
+                    f"falta la definicion de la migracion {version}", "migracion_faltante"
+                )
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                for sentencia in sentencias:
+                    conn.execute(sentencia)
+                conn.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+    finally:
+        conn.isolation_level = previo
 
 
 # ---------------------------------------------------------------------------
@@ -669,7 +759,10 @@ def cmd_pendiente_done(conn: sqlite3.Connection, args: argparse.Namespace) -> di
 
 def cmd_health(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
     version_row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-    tablas = ["gastos", "entrenamientos", "tarjetas", "contactos", "pendientes"]
+    tablas = [
+        "gastos", "entrenamientos", "tarjetas", "contactos", "pendientes",
+        "rutina_bloques", "rutina_items", "rutina_completado",
+    ]
     conteos = {
         t: conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"] for t in tablas
     }
