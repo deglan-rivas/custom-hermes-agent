@@ -698,5 +698,302 @@ class TestSubcommandContract(unittest.TestCase):
             self.assertIn(tabla, payload["data"]["conteos"])
 
 
+# ---------------------------------------------------------------------------
+# `rutina` subcommand contract tests (design.md §5, §7.2)
+# ---------------------------------------------------------------------------
+
+class TestRutinaSubcomandos(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmpdir.name, "vida.db")
+        self.env = dict(os.environ, VIDA_DB=self.db_path)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _run(self, *args):
+        return subprocess.run(
+            [sys.executable, VIDA_PY, *args], env=self.env, capture_output=True, text=True
+        )
+
+    def _assert_json_ok(self, result, expect_ok=True, expect_exit=0):
+        self.assertEqual(result.returncode, expect_exit, msg=result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["ok"], expect_ok)
+        return payload
+
+    def _bloque_add(self, nombre, **kwargs):
+        args = ["rutina", "bloque-add", "--nombre", nombre]
+        for flag, val in kwargs.items():
+            args += [f"--{flag.replace('_', '-')}", str(val)]
+        return self._assert_json_ok(self._run(*args))
+
+    def _item_add(self, nombre, bloque, **kwargs):
+        args = ["rutina", "item-add", "--nombre", nombre, "--bloque", bloque]
+        for flag, val in kwargs.items():
+            args += [f"--{flag.replace('_', '-')}", str(val)]
+        return self._assert_json_ok(self._run(*args))
+
+    # -- bloque-add / item-add -----------------------------------------
+
+    def test_bloque_add_and_item_add(self):
+        payload = self._bloque_add("Asearme", **{"hora-objetivo": "07:30"})
+        self.assertEqual(payload["data"]["nombre"], "asearme")
+
+        payload = self._item_add("Ducharme", "Asearme")
+        self.assertEqual(payload["data"]["nombre"], "ducharme")
+        self.assertEqual(payload["data"]["bloque"], "asearme")
+
+    def test_bloque_add_duplicate_nombre_fails_cleanly(self):
+        self._bloque_add("asearme")
+        result = self._run("rutina", "bloque-add", "--nombre", "asearme")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "duplicado")
+
+    def test_bloque_nombre_is_normalised(self):
+        self._bloque_add("Asearme ")
+        result = self._run("rutina", "bloque-add", "--nombre", "  asearme")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "duplicado")
+
+    def test_item_add_unknown_bloque_fails_cleanly(self):
+        result = self._run("rutina", "item-add", "--nombre", "ducharme", "--bloque", "inexistente")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "no_encontrado")
+
+    def test_item_add_duplicate_in_same_bloque_fails_cleanly(self):
+        self._bloque_add("asearme")
+        self._item_add("ducharme", "asearme")
+        result = self._run("rutina", "item-add", "--nombre", "ducharme", "--bloque", "asearme")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "duplicado")
+
+    # -- today ------------------------------------------------------------
+
+    def test_today_shape_and_ordering(self):
+        self._bloque_add("asearme", orden=1)
+        self._item_add("skincare", "asearme", orden=2)
+        self._item_add("ducharme", "asearme", orden=1)
+
+        result = self._run("rutina", "today", "--sin-pendientes")
+        payload = self._assert_json_ok(result)
+        bloque = payload["data"]["bloques"][0]
+        nombres = [it["nombre"] for it in bloque["items"]]
+        self.assertEqual(nombres, ["ducharme", "skincare"])
+        self.assertEqual(payload["data"]["resumen"]["pct"], 0)
+
+    def test_today_pct_is_null_when_no_items(self):
+        self._bloque_add("asearme")
+        result = self._run("rutina", "today", "--sin-pendientes")
+        payload = self._assert_json_ok(result)
+        self.assertIsNone(payload["data"]["bloques"][0]["pct"])
+        self.assertIsNone(payload["data"]["resumen"]["pct"])
+
+    def test_today_excludes_inactive(self):
+        self._bloque_add("asearme")
+        self._item_add("ducharme", "asearme")
+        conn = vida.get_connection(self.db_path)
+        with conn:
+            conn.execute("UPDATE rutina_items SET activo = 0 WHERE nombre = 'ducharme'")
+        conn.close()
+
+        result = self._run("rutina", "today", "--sin-pendientes")
+        payload = self._assert_json_ok(result)
+        self.assertEqual(payload["data"]["bloques"][0]["items"], [])
+
+    def test_today_includes_pendientes_and_sin_pendientes_flag(self):
+        hoy = date.today().isoformat()
+        self._run("pendiente", "add", "--titulo", "Pagar luz", "--fecha", hoy)
+        self._bloque_add("asearme")
+
+        result = self._run("rutina", "today")
+        payload = self._assert_json_ok(result)
+        self.assertTrue(any(p["titulo"] == "Pagar luz" for p in payload["data"]["pendientes"]))
+
+        result = self._run("rutina", "today", "--sin-pendientes")
+        payload = self._assert_json_ok(result)
+        self.assertNotIn("pendientes", payload["data"])
+
+    # -- done ---------------------------------------------------------------
+
+    def test_done_marks_item_and_today_reflects_it(self):
+        self._bloque_add("asearme")
+        item = self._item_add("ducharme", "asearme")["data"]
+        result = self._run("rutina", "done", "--id", str(item["id"]))
+        payload = self._assert_json_ok(result)
+        self.assertFalse(payload["data"]["ya_estaba"])
+
+        result = self._run("rutina", "today", "--sin-pendientes")
+        payload = self._assert_json_ok(result)
+        self.assertTrue(payload["data"]["bloques"][0]["items"][0]["hecho_hoy"])
+
+    def test_done_twice_is_idempotent(self):
+        self._bloque_add("asearme")
+        item = self._item_add("ducharme", "asearme")["data"]
+        self._run("rutina", "done", "--id", str(item["id"]))
+        result = self._run("rutina", "done", "--id", str(item["id"]))
+        payload = self._assert_json_ok(result)
+        self.assertTrue(payload["data"]["ya_estaba"])
+
+        conn = vida.get_connection(self.db_path)
+        try:
+            n = conn.execute(
+                "SELECT COUNT(*) AS n FROM rutina_completado WHERE item_id = ?", (item["id"],)
+            ).fetchone()["n"]
+            self.assertEqual(n, 1)
+        finally:
+            conn.close()
+
+    def test_done_unknown_id_fails_cleanly(self):
+        result = self._run("rutina", "done", "--id", "9999")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "no_encontrado")
+
+    def test_done_with_bloque_id_reports_id_es_bloque(self):
+        bloque = self._bloque_add("asearme")["data"]
+        result = self._run("rutina", "done", "--id", str(bloque["id"]))
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "id_es_bloque")
+
+    def test_done_inactive_item_fails_cleanly(self):
+        self._bloque_add("asearme")
+        item = self._item_add("ducharme", "asearme")["data"]
+        conn = vida.get_connection(self.db_path)
+        with conn:
+            conn.execute("UPDATE rutina_items SET activo = 0 WHERE id = ?", (item["id"],))
+        conn.close()
+
+        result = self._run("rutina", "done", "--id", str(item["id"]))
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "item_inactivo")
+
+    def test_done_future_date_fails_cleanly(self):
+        self._bloque_add("asearme")
+        item = self._item_add("ducharme", "asearme")["data"]
+        manana = (date.today() + timedelta(days=1)).isoformat()
+        result = self._run("rutina", "done", "--id", str(item["id"]), "--fecha", manana)
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "fecha_futura")
+
+    def test_next_day_checklist_is_clean_without_any_reset(self):
+        self._bloque_add("asearme")
+        item = self._item_add("ducharme", "asearme")["data"]
+        ayer = (date.today() - timedelta(days=1)).isoformat()
+        self._run("rutina", "done", "--id", str(item["id"]), "--fecha", ayer)
+
+        result = self._run("rutina", "today", "--sin-pendientes")
+        payload = self._assert_json_ok(result)
+        self.assertFalse(payload["data"]["bloques"][0]["items"][0]["hecho_hoy"])
+
+        result = self._run("rutina", "historial", "--fecha", "ayer")
+        payload = self._assert_json_ok(result)
+        self.assertEqual(len(payload["data"]["dias"][0]["rutina"]), 1)
+
+    # -- historial ------------------------------------------------------------
+
+    def test_historial_fecha_and_rango(self):
+        self._bloque_add("asearme")
+        item = self._item_add("ducharme", "asearme")["data"]
+        ayer = (date.today() - timedelta(days=1)).isoformat()
+        self._run("rutina", "done", "--id", str(item["id"]), "--fecha", ayer)
+
+        result = self._run("rutina", "historial", "--fecha", "ayer")
+        payload = self._assert_json_ok(result)
+        self.assertEqual(payload["data"]["dias"][0]["rutina"][0]["item"], "ducharme")
+
+        hoy = date.today().isoformat()
+        result = self._run("rutina", "historial", "--desde", ayer, "--hasta", hoy)
+        payload = self._assert_json_ok(result)
+        self.assertEqual(len(payload["data"]["dias"]), 2)
+        # empty day (today) still appears
+        self.assertEqual(payload["data"]["dias"][1]["rutina"], [])
+
+    # -- stats ------------------------------------------------------------
+
+    def test_stats_percentages_match_a_hand_calculation(self):
+        self._bloque_add("asearme")
+        item = self._item_add("ducharme", "asearme")["data"]
+        base = date.today() - timedelta(days=9)
+        conn = vida.get_connection(self.db_path)
+        with conn:
+            conn.execute(
+                "UPDATE rutina_items SET creado_en = ? WHERE id = ?",
+                (f"{base.isoformat()} 00:00:00", item["id"]),
+            )
+        conn.close()
+
+        dias_completados = [0, 1, 2, 5, 6, 8, 9]  # 7 of 10 days
+        for offset in dias_completados:
+            fecha = (base + timedelta(days=offset)).isoformat()
+            self._run("rutina", "done", "--id", str(item["id"]), "--fecha", fecha)
+
+        hasta = date.today().isoformat()
+        result = self._run("rutina", "stats", "--desde", base.isoformat(), "--hasta", hasta)
+        payload = self._assert_json_ok(result)
+        item_stats = payload["data"]["por_bloque"][0]["items"][0]
+        self.assertEqual(item_stats["oportunidades"], 10)
+        self.assertEqual(item_stats["completados"], 7)
+        self.assertEqual(item_stats["pct"], 70.0)
+        self.assertEqual(payload["data"]["global"]["pct"], 70.0)
+
+    def test_stats_desde_efectivo_respects_item_creation(self):
+        self._bloque_add("asearme")
+        item = self._item_add("ducharme", "asearme")["data"]
+        hoy = date.today()
+        desde = hoy - timedelta(days=30)
+
+        result = self._run("rutina", "stats", "--desde", desde.isoformat(), "--hasta", hoy.isoformat())
+        payload = self._assert_json_ok(result)
+        item_stats = payload["data"]["por_bloque"][0]["items"][0]
+        self.assertEqual(item_stats["desde_efectivo"], hoy.isoformat())
+        self.assertEqual(item_stats["oportunidades"], 1)
+
+    def test_stats_streaks(self):
+        self._bloque_add("asearme")
+        item = self._item_add("ducharme", "asearme")["data"]
+        base = date.today() - timedelta(days=9)
+        conn = vida.get_connection(self.db_path)
+        with conn:
+            conn.execute(
+                "UPDATE rutina_items SET creado_en = ? WHERE id = ?",
+                (f"{base.isoformat()} 00:00:00", item["id"]),
+            )
+        conn.close()
+
+        # gap at day 7 (offset), completed on offsets 5,6,8,9 (streak of 2 ending at --hasta)
+        for offset in (5, 6, 8, 9):
+            fecha = (base + timedelta(days=offset)).isoformat()
+            self._run("rutina", "done", "--id", str(item["id"]), "--fecha", fecha)
+
+        hasta = date.today().isoformat()
+        result = self._run("rutina", "stats", "--desde", base.isoformat(), "--hasta", hasta)
+        payload = self._assert_json_ok(result)
+        item_stats = payload["data"]["por_bloque"][0]["items"][0]
+        self.assertEqual(item_stats["racha_actual"], 2)
+        self.assertEqual(item_stats["mejor_racha"], 2)
+
+    def test_stats_pct_null_when_no_opportunities(self):
+        self._bloque_add("asearme")
+        self._item_add("ducharme", "asearme")
+        pasado_desde = (date.today() - timedelta(days=10)).isoformat()
+        pasado_hasta = (date.today() - timedelta(days=5)).isoformat()
+        result = self._run("rutina", "stats", "--desde", pasado_desde, "--hasta", pasado_hasta)
+        payload = self._assert_json_ok(result)
+        item_stats = payload["data"]["por_bloque"][0]["items"][0]
+        self.assertEqual(item_stats["oportunidades"], 0)
+        self.assertIsNone(item_stats["pct"])
+
+    def test_fecha_relativa_hoy_ayer_anteayer(self):
+        self._bloque_add("asearme")
+        item = self._item_add("ducharme", "asearme")["data"]
+        for literal in ("hoy", "ayer", "anteayer"):
+            result = self._run("rutina", "done", "--id", str(item["id"]), "--fecha", literal)
+            self._assert_json_ok(result)
+
+        result = self._run("rutina", "done", "--id", str(item["id"]), "--fecha", "no-es-una-fecha")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "fecha_invalida")
+
+
 if __name__ == "__main__":
     unittest.main()

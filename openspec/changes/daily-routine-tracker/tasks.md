@@ -60,43 +60,43 @@ Unit 1 alone (schema.sql + vida.py + test_vida.py) likely exceeds 400 lines on i
 
 ## Phase 2: `rutina` Data Model + Subcommand Group
 
-- [ ] 2.1 Wire `rutina` subparser group in `vida.py`: `subparsers.add_parser("rutina")`, nested `add_subparsers(dest="subcomando", required=True)`, leaves named `bloque-add`, `item-add`, `today`, `done`, `historial`, `stats` (hyphenated per design.md §5, NOT a 3rd parser level).
-- [ ] 2.2 Implement `cmd_rutina_bloque_add(conn, args)`: `--nombre` (normalized `strip().lower()`, UNIQUE), `--hora-objetivo`, `--orden`, `--fuente`; `codigo: "duplicado"` on UNIQUE violation.
-- [ ] 2.3 Implement `cmd_rutina_item_add(conn, args)`: `--nombre` + one of `--bloque`|`--bloque-id`; resolves block by name (UNIQUE), `codigo: "no_encontrado"` listing existing block names on miss; `UNIQUE(bloque_id, nombre)` → `codigo: "duplicado"`.
-- [ ] 2.4 Implement `cmd_rutina_today(conn, args)`: `--fecha` (default hoy), `--sin-pendientes`; JSON contract per design.md §5.2 — `bloques[].items[]` with `hecho_hoy`/`hecho_a_las`, `pct` null-safe, `resumen`, `pendientes` (byte-for-byte `pendiente today` payload) unless `--sin-pendientes`. Only `activo=1`, ordered `orden ASC, id ASC`.
-- [ ] 2.5 Implement `cmd_rutina_done(conn, args)`: `--id` required int, `--fecha` (default hoy), `--fuente`; error table per design.md §5.5 (`no_encontrado`, `id_es_bloque`, `item_inactivo`, `fecha_futura`); `ya_estaba: true` (not error) on duplicate, exit 0.
-- [ ] 2.6 Implement `cmd_rutina_historial(conn, args)`: `--fecha` XOR `--desde`/`--hasta`; returns `rutina_completado` + `pendientes.completado_en` per day in range, including empty days.
-- [ ] 2.7 Implement `cmd_rutina_stats(conn, args)`: `--desde`, `--hasta`, optional `--bloque`; compute `oportunidades`/`completados`/`pct` per item (from `desde_efectivo = max(--desde, item.creado_en)`, D-7) and rollups per block/global (sum-then-divide, never average-of-percentages); `racha_actual`/`mejor_racha` streaks.
-- [ ] 2.8 Implement `_parse_fecha` extension: accept `hoy`/`ayer`/`anteayer` literals in addition to ISO (D-8); `codigo: "fecha_invalida"` otherwise.
-- [ ] 2.9 Register all 6 `cmd_rutina_*` functions via `set_defaults(func=...)`; confirm `_accion()` yields `rutina.bloque-add`, `rutina.item-add`, `rutina.today`, `rutina.done`, `rutina.historial`, `rutina.stats`.
+- [x] 2.1 Wire `rutina` subparser group in `vida.py`: `subparsers.add_parser("rutina")`, nested `add_subparsers(dest="subcomando", required=True)`, leaves named `bloque-add`, `item-add`, `today`, `done`, `historial`, `stats` (hyphenated per design.md §5, NOT a 3rd parser level).
+- [x] 2.2 Implement `cmd_rutina_bloque_add(conn, args)`: `--nombre` (normalized `strip().lower()`, UNIQUE), `--hora-objetivo`, `--orden`, `--fuente`; `codigo: "duplicado"` on UNIQUE violation.
+- [x] 2.3 Implement `cmd_rutina_item_add(conn, args)`: `--nombre` + one of `--bloque`|`--bloque-id`; resolves block by name (UNIQUE), `codigo: "no_encontrado"` listing existing block names on miss; `UNIQUE(bloque_id, nombre)` → `codigo: "duplicado"`.
+- [x] 2.4 Implement `cmd_rutina_today(conn, args)`: `--fecha` (default hoy), `--sin-pendientes`; JSON contract per design.md §5.2 — `bloques[].items[]` with `hecho_hoy`/`hecho_a_las`, `pct` null-safe, `resumen`, `pendientes` (byte-for-byte `pendiente today` payload) unless `--sin-pendientes`. Only `activo=1`, ordered `orden ASC, id ASC`.
+- [x] 2.5 Implement `cmd_rutina_done(conn, args)`: `--id` required int, `--fecha` (default hoy), `--fuente`; error table per design.md §5.5 (`no_encontrado`, `id_es_bloque`, `item_inactivo`, `fecha_futura`); `ya_estaba: true` (not error) on duplicate, exit 0.
+- [x] 2.6 Implement `cmd_rutina_historial(conn, args)`: `--fecha` XOR `--desde`/`--hasta`; returns `rutina_completado` + `pendientes.completado_en` per day in range, including empty days.
+- [x] 2.7 Implement `cmd_rutina_stats(conn, args)`: `--desde`, `--hasta`, optional `--bloque`; compute `oportunidades`/`completados`/`pct` per item (from `desde_efectivo = max(--desde, item.creado_en)`, D-7) and rollups per block/global (sum-then-divide, never average-of-percentages); `racha_actual`/`mejor_racha` streaks.
+- [x] 2.8 Implement `_parse_fecha` extension: accept `hoy`/`ayer`/`anteayer` literals in addition to ISO (D-8); `codigo: "fecha_invalida"` otherwise.
+- [x] 2.9 Register all 6 `cmd_rutina_*` functions via `set_defaults(func=...)`; confirm `_accion()` yields `rutina.bloque-add`, `rutina.item-add`, `rutina.today`, `rutina.done`, `rutina.historial`, `rutina.stats`.
 
 ### `rutina` Subcommand Tests (test_vida.py — TestRutinaSubcomandos)
 
-- [ ] 2.10 RED/GREEN: `test_bloque_add_and_item_add` — happy path, `--bloque` name resolution.
-- [ ] 2.11 RED/GREEN: `test_bloque_add_duplicate_nombre_fails_cleanly`.
-- [ ] 2.12 RED/GREEN: `test_bloque_nombre_is_normalised`.
-- [ ] 2.13 RED/GREEN: `test_item_add_unknown_bloque_fails_cleanly`.
-- [ ] 2.14 RED/GREEN: `test_item_add_duplicate_in_same_bloque_fails_cleanly`.
-- [ ] 2.15 RED/GREEN: `test_today_shape_and_ordering`.
-- [ ] 2.16 RED/GREEN: `test_today_pct_is_null_when_no_items`.
-- [ ] 2.17 RED/GREEN: `test_today_excludes_inactive`.
-- [ ] 2.18 RED/GREEN: `test_today_includes_pendientes_and_sin_pendientes_flag`.
-- [ ] 2.19 RED/GREEN: `test_done_marks_item_and_today_reflects_it`.
-- [ ] 2.20 RED/GREEN: `test_done_twice_is_idempotent` — one row in `rutina_completado`, `ya_estaba: true` on 2nd call.
-- [ ] 2.21 RED/GREEN: `test_done_unknown_id_fails_cleanly`.
-- [ ] 2.22 RED/GREEN: `test_done_with_bloque_id_reports_id_es_bloque`.
-- [ ] 2.23 RED/GREEN: `test_done_inactive_item_fails_cleanly`.
-- [ ] 2.24 RED/GREEN: `test_done_future_date_fails_cleanly`.
-- [ ] 2.25 RED/GREEN: `test_next_day_checklist_is_clean_without_any_reset` — the D-2 success criterion.
-- [ ] 2.26 RED/GREEN: `test_historial_fecha_and_rango`.
-- [ ] 2.27 RED/GREEN: `test_stats_percentages_match_a_hand_calculation` — 3 items x 10 days seeded grid, verified by hand-computed numbers.
-- [ ] 2.28 RED/GREEN: `test_stats_desde_efectivo_respects_item_creation`.
-- [ ] 2.29 RED/GREEN: `test_stats_streaks`.
-- [ ] 2.30 RED/GREEN: `test_stats_pct_null_when_no_opportunities`.
-- [ ] 2.31 RED/GREEN: `test_fecha_relativa_hoy_ayer_anteayer`.
-- [ ] 2.32 Test (TestSchemaConstraints): `test_unique_item_fecha_rejected`, `test_delete_bloque_con_items_is_restricted`.
-- [ ] 2.33 Test (TestSubcommandContract): `test_health_incluye_tablas_rutina`.
-- [ ] 2.34 Run full suite (47 existing + ~35 new) — confirm green before Phase 3.
+- [x] 2.10 RED/GREEN: `test_bloque_add_and_item_add` — happy path, `--bloque` name resolution.
+- [x] 2.11 RED/GREEN: `test_bloque_add_duplicate_nombre_fails_cleanly`.
+- [x] 2.12 RED/GREEN: `test_bloque_nombre_is_normalised`.
+- [x] 2.13 RED/GREEN: `test_item_add_unknown_bloque_fails_cleanly`.
+- [x] 2.14 RED/GREEN: `test_item_add_duplicate_in_same_bloque_fails_cleanly`.
+- [x] 2.15 RED/GREEN: `test_today_shape_and_ordering`.
+- [x] 2.16 RED/GREEN: `test_today_pct_is_null_when_no_items`.
+- [x] 2.17 RED/GREEN: `test_today_excludes_inactive`.
+- [x] 2.18 RED/GREEN: `test_today_includes_pendientes_and_sin_pendientes_flag`.
+- [x] 2.19 RED/GREEN: `test_done_marks_item_and_today_reflects_it`.
+- [x] 2.20 RED/GREEN: `test_done_twice_is_idempotent` — one row in `rutina_completado`, `ya_estaba: true` on 2nd call.
+- [x] 2.21 RED/GREEN: `test_done_unknown_id_fails_cleanly`.
+- [x] 2.22 RED/GREEN: `test_done_with_bloque_id_reports_id_es_bloque`.
+- [x] 2.23 RED/GREEN: `test_done_inactive_item_fails_cleanly`.
+- [x] 2.24 RED/GREEN: `test_done_future_date_fails_cleanly`.
+- [x] 2.25 RED/GREEN: `test_next_day_checklist_is_clean_without_any_reset` — the D-2 success criterion.
+- [x] 2.26 RED/GREEN: `test_historial_fecha_and_rango`.
+- [x] 2.27 RED/GREEN: `test_stats_percentages_match_a_hand_calculation` — 3 items x 10 days seeded grid, verified by hand-computed numbers.
+- [x] 2.28 RED/GREEN: `test_stats_desde_efectivo_respects_item_creation`.
+- [x] 2.29 RED/GREEN: `test_stats_streaks`.
+- [x] 2.30 RED/GREEN: `test_stats_pct_null_when_no_opportunities`.
+- [x] 2.31 RED/GREEN: `test_fecha_relativa_hoy_ayer_anteayer`.
+- [x] 2.32 Test (TestSchemaConstraints): `test_unique_item_fecha_rejected`, `test_delete_bloque_con_items_is_restricted`.
+- [x] 2.33 Test (TestSubcommandContract): `test_health_incluye_tablas_rutina`.
+- [x] 2.34 Run full suite (47 existing + ~35 new) — confirm green before Phase 3.
 
 ## Phase 3: `skills/rutina-diaria/SKILL.md`
 

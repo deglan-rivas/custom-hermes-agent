@@ -258,7 +258,14 @@ def _hoy() -> date:
     return date.today()
 
 
+_FECHAS_RELATIVAS = {"hoy": 0, "ayer": -1, "anteayer": -2}
+
+
 def _parse_fecha(valor: str, codigo: str = "fecha_invalida") -> date:
+    # D-8: accept the literals hoy/ayer/anteayer, resolved here (deterministic,
+    # one line) -- anything more ambiguous stays the model's job.
+    if valor in _FECHAS_RELATIVAS:
+        return _hoy() + timedelta(days=_FECHAS_RELATIVAS[valor])
     try:
         return datetime.strptime(valor, "%Y-%m-%d").date()
     except ValueError as exc:
@@ -761,6 +768,344 @@ def cmd_pendiente_done(conn: sqlite3.Connection, args: argparse.Namespace) -> di
 
 
 # ---------------------------------------------------------------------------
+# rutina (daily-routine-tracker design.md §5)
+# ---------------------------------------------------------------------------
+
+def cmd_rutina_bloque_add(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
+    nombre = args.nombre.strip().lower()
+    try:
+        with conn:
+            cur = conn.execute(
+                """
+                INSERT INTO rutina_bloques (nombre, hora_objetivo, orden, fuente)
+                VALUES (?, ?, ?, ?)
+                """,
+                (nombre, args.hora_objetivo, args.orden or 0, args.fuente or "cli"),
+            )
+            bloque_id = cur.lastrowid
+    except sqlite3.IntegrityError as exc:
+        raise VidaError(f"ya existe un bloque llamado {nombre!r}", "duplicado") from exc
+
+    row = conn.execute("SELECT * FROM rutina_bloques WHERE id = ?", (bloque_id,)).fetchone()
+    return _row_to_dict(row)
+
+
+def _resolver_bloque(conn: sqlite3.Connection, args: argparse.Namespace) -> sqlite3.Row:
+    if args.bloque:
+        bloque_nombre = args.bloque.strip().lower()
+        row = conn.execute(
+            "SELECT id, nombre FROM rutina_bloques WHERE nombre = ?", (bloque_nombre,)
+        ).fetchone()
+        if row is None:
+            existentes = [
+                r["nombre"]
+                for r in conn.execute("SELECT nombre FROM rutina_bloques ORDER BY nombre").fetchall()
+            ]
+            raise VidaError(
+                f"no existe un bloque llamado {bloque_nombre!r}; bloques existentes: {existentes}",
+                "no_encontrado",
+            )
+        return row
+
+    row = conn.execute(
+        "SELECT id, nombre FROM rutina_bloques WHERE id = ?", (args.bloque_id,)
+    ).fetchone()
+    if row is None:
+        raise VidaError(f"no existe un bloque con id {args.bloque_id}", "no_encontrado")
+    return row
+
+
+def cmd_rutina_item_add(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
+    nombre = args.nombre.strip().lower()
+    bloque = _resolver_bloque(conn, args)
+
+    try:
+        with conn:
+            cur = conn.execute(
+                """
+                INSERT INTO rutina_items (bloque_id, nombre, orden, fuente)
+                VALUES (?, ?, ?, ?)
+                """,
+                (bloque["id"], nombre, args.orden or 0, args.fuente or "cli"),
+            )
+            item_id = cur.lastrowid
+    except sqlite3.IntegrityError as exc:
+        raise VidaError(
+            f"ya existe un item llamado {nombre!r} en el bloque {bloque['nombre']!r}", "duplicado"
+        ) from exc
+
+    row = conn.execute("SELECT * FROM rutina_items WHERE id = ?", (item_id,)).fetchone()
+    data = _row_to_dict(row)
+    data["bloque"] = bloque["nombre"]
+    return data
+
+
+def cmd_rutina_today(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
+    fecha = _parse_fecha(args.fecha or "hoy")
+    fecha_iso = fecha.isoformat()
+
+    bloques = conn.execute(
+        "SELECT * FROM rutina_bloques WHERE activo = 1 ORDER BY orden ASC, id ASC"
+    ).fetchall()
+
+    resultado_bloques = []
+    total_items_global = 0
+    hechos_global = 0
+    for b in bloques:
+        items = conn.execute(
+            "SELECT * FROM rutina_items WHERE bloque_id = ? AND activo = 1 ORDER BY orden ASC, id ASC",
+            (b["id"],),
+        ).fetchall()
+
+        items_out = []
+        hechos = 0
+        for it in items:
+            comp = conn.execute(
+                "SELECT creado_en FROM rutina_completado WHERE item_id = ? AND fecha = ?",
+                (it["id"], fecha_iso),
+            ).fetchone()
+            hecho_hoy = comp is not None
+            if hecho_hoy:
+                hechos += 1
+            items_out.append(
+                {
+                    "item_id": it["id"],
+                    "nombre": it["nombre"],
+                    "orden": it["orden"],
+                    "hecho_hoy": hecho_hoy,
+                    "hecho_a_las": comp["creado_en"] if comp else None,
+                }
+            )
+
+        total_items = len(items_out)
+        pct = round(hechos / total_items * 100, 1) if total_items else None
+        resultado_bloques.append(
+            {
+                "bloque_id": b["id"],
+                "nombre": b["nombre"],
+                "hora_objetivo": b["hora_objetivo"],
+                "orden": b["orden"],
+                "total_items": total_items,
+                "hechos": hechos,
+                "pct": pct,
+                "items": items_out,
+            }
+        )
+        total_items_global += total_items
+        hechos_global += hechos
+
+    resumen_pct = round(hechos_global / total_items_global * 100, 1) if total_items_global else None
+    data = {
+        "fecha": fecha_iso,
+        "bloques": resultado_bloques,
+        "resumen": {"total_items": total_items_global, "hechos": hechos_global, "pct": resumen_pct},
+    }
+    if not args.sin_pendientes:
+        pendientes_args = argparse.Namespace(incluir_vencidos=None)
+        data["pendientes"] = cmd_pendiente_today(conn, pendientes_args)["pendientes"]
+    return data
+
+
+def cmd_rutina_done(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
+    item = conn.execute("SELECT * FROM rutina_items WHERE id = ?", (args.id,)).fetchone()
+    if item is None:
+        bloque = conn.execute("SELECT id FROM rutina_bloques WHERE id = ?", (args.id,)).fetchone()
+        if bloque is not None:
+            raise VidaError(
+                f"el id {args.id} es un bloque, no un item; usa los item_id de 'rutina today'",
+                "id_es_bloque",
+            )
+        raise VidaError(f"no existe item de rutina con id {args.id}", "no_encontrado")
+    if not item["activo"]:
+        raise VidaError(f"el item {args.id} esta inactivo", "item_inactivo")
+
+    fecha = _parse_fecha(args.fecha or "hoy")
+    if fecha > _hoy():
+        raise VidaError("no se puede completar una fecha futura", "fecha_futura")
+    fecha_iso = fecha.isoformat()
+
+    existente = conn.execute(
+        "SELECT creado_en FROM rutina_completado WHERE item_id = ? AND fecha = ?",
+        (args.id, fecha_iso),
+    ).fetchone()
+    ya_estaba = existente is not None
+    if not ya_estaba:
+        with conn:
+            conn.execute(
+                "INSERT INTO rutina_completado (item_id, fecha, fuente) VALUES (?, ?, ?)",
+                (args.id, fecha_iso, args.fuente or "cli"),
+            )
+        existente = conn.execute(
+            "SELECT creado_en FROM rutina_completado WHERE item_id = ? AND fecha = ?",
+            (args.id, fecha_iso),
+        ).fetchone()
+
+    bloque_row = conn.execute(
+        "SELECT nombre FROM rutina_bloques WHERE id = ?", (item["bloque_id"],)
+    ).fetchone()
+
+    return {
+        "item_id": args.id,
+        "item": item["nombre"],
+        "bloque": bloque_row["nombre"] if bloque_row else None,
+        "fecha": fecha_iso,
+        "ya_estaba": ya_estaba,
+        "hecho_a_las": existente["creado_en"] if existente else None,
+    }
+
+
+def cmd_rutina_historial(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
+    if args.fecha and (args.desde or args.hasta):
+        raise VidaError("usa --fecha o --desde/--hasta, no ambos", "validacion")
+    if args.fecha:
+        desde = hasta = _parse_fecha(args.fecha)
+    elif args.desde and args.hasta:
+        desde = _parse_fecha(args.desde)
+        hasta = _parse_fecha(args.hasta)
+    else:
+        raise VidaError("se requiere --fecha o --desde/--hasta", "validacion")
+
+    dias = []
+    cursor = desde
+    while cursor <= hasta:
+        fecha_iso = cursor.isoformat()
+        rutina_rows = conn.execute(
+            """
+            SELECT rc.item_id AS item_id, ri.nombre AS item, ri.bloque_id AS bloque_id,
+                   rb.nombre AS bloque, rc.creado_en AS hecho_a_las
+            FROM rutina_completado rc
+            JOIN rutina_items ri ON ri.id = rc.item_id
+            JOIN rutina_bloques rb ON rb.id = ri.bloque_id
+            WHERE rc.fecha = ?
+            ORDER BY rc.creado_en ASC
+            """,
+            (fecha_iso,),
+        ).fetchall()
+        pendiente_rows = conn.execute(
+            "SELECT * FROM pendientes WHERE date(completado_en) = ?", (fecha_iso,)
+        ).fetchall()
+        dias.append(
+            {
+                "fecha": fecha_iso,
+                "rutina": [_row_to_dict(r) for r in rutina_rows],
+                "pendientes": [_row_to_dict(r) for r in pendiente_rows],
+            }
+        )
+        cursor = cursor + timedelta(days=1)
+
+    return {
+        "rango": {"desde": desde.isoformat(), "hasta": hasta.isoformat(), "dias": (hasta - desde).days + 1},
+        "dias": dias,
+    }
+
+
+def cmd_rutina_stats(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
+    desde = _parse_fecha(args.desde)
+    hasta = _parse_fecha(args.hasta)
+    dias_rango = (hasta - desde).days + 1
+    hoy = _hoy()
+    limite_racha = min(hasta, hoy)
+
+    query = "SELECT * FROM rutina_bloques WHERE activo = 1"
+    params: list = []
+    if args.bloque:
+        query += " AND nombre = ?"
+        params.append(args.bloque.strip().lower())
+    query += " ORDER BY orden ASC, id ASC"
+    bloques = conn.execute(query, params).fetchall()
+
+    por_bloque = []
+    global_oportunidades = 0
+    global_completados = 0
+
+    for b in bloques:
+        items = conn.execute(
+            "SELECT * FROM rutina_items WHERE bloque_id = ? AND activo = 1 ORDER BY orden ASC, id ASC",
+            (b["id"],),
+        ).fetchall()
+
+        items_out = []
+        bloque_oportunidades = 0
+        bloque_completados = 0
+        for it in items:
+            creado = _parse_fecha(it["creado_en"][:10])
+            desde_efectivo = max(desde, creado)
+            oportunidades = (hasta - desde_efectivo).days + 1 if desde_efectivo <= hasta else 0
+
+            fechas_completadas = {
+                r["fecha"]
+                for r in conn.execute(
+                    "SELECT fecha FROM rutina_completado WHERE item_id = ? AND fecha BETWEEN ? AND ?",
+                    (it["id"], desde_efectivo.isoformat(), hasta.isoformat()),
+                ).fetchall()
+            }
+            completados = len(fechas_completadas)
+            pct = round(completados / oportunidades * 100, 1) if oportunidades else None
+
+            racha_actual = 0
+            cursor = limite_racha
+            while cursor >= desde_efectivo and cursor.isoformat() in fechas_completadas:
+                racha_actual += 1
+                cursor = cursor - timedelta(days=1)
+
+            mejor_racha = 0
+            actual = 0
+            cursor = desde_efectivo
+            while cursor <= hasta:
+                if cursor.isoformat() in fechas_completadas:
+                    actual += 1
+                    mejor_racha = max(mejor_racha, actual)
+                else:
+                    actual = 0
+                cursor = cursor + timedelta(days=1)
+
+            items_out.append(
+                {
+                    "item_id": it["id"],
+                    "nombre": it["nombre"],
+                    "desde_efectivo": desde_efectivo.isoformat(),
+                    "oportunidades": oportunidades,
+                    "completados": completados,
+                    "pct": pct,
+                    "racha_actual": racha_actual,
+                    "mejor_racha": mejor_racha,
+                }
+            )
+            bloque_oportunidades += oportunidades
+            bloque_completados += completados
+
+        bloque_pct = (
+            round(bloque_completados / bloque_oportunidades * 100, 1) if bloque_oportunidades else None
+        )
+        por_bloque.append(
+            {
+                "bloque_id": b["id"],
+                "nombre": b["nombre"],
+                "oportunidades": bloque_oportunidades,
+                "completados": bloque_completados,
+                "pct": bloque_pct,
+                "items": items_out,
+            }
+        )
+        global_oportunidades += bloque_oportunidades
+        global_completados += bloque_completados
+
+    global_pct = (
+        round(global_completados / global_oportunidades * 100, 1) if global_oportunidades else None
+    )
+
+    return {
+        "rango": {"desde": desde.isoformat(), "hasta": hasta.isoformat(), "dias": dias_rango},
+        "global": {
+            "oportunidades": global_oportunidades,
+            "completados": global_completados,
+            "pct": global_pct,
+        },
+        "por_bloque": por_bloque,
+    }
+
+
+# ---------------------------------------------------------------------------
 # health
 # ---------------------------------------------------------------------------
 
@@ -896,6 +1241,48 @@ def build_parser() -> argparse.ArgumentParser:
     pendiente_done = pendiente_sub.add_parser("done")
     pendiente_done.add_argument("--id", type=int, required=True)
     pendiente_done.set_defaults(func=cmd_pendiente_done)
+
+    rutina = subparsers.add_parser("rutina")
+    rutina_sub = rutina.add_subparsers(dest="subcomando", required=True)
+
+    rutina_bloque_add = rutina_sub.add_parser("bloque-add")
+    rutina_bloque_add.add_argument("--nombre", required=True)
+    rutina_bloque_add.add_argument("--hora-objetivo", dest="hora_objetivo")
+    rutina_bloque_add.add_argument("--orden", type=int)
+    rutina_bloque_add.add_argument("--fuente")
+    rutina_bloque_add.set_defaults(func=cmd_rutina_bloque_add)
+
+    rutina_item_add = rutina_sub.add_parser("item-add")
+    rutina_item_add.add_argument("--nombre", required=True)
+    rutina_item_bloque = rutina_item_add.add_mutually_exclusive_group(required=True)
+    rutina_item_bloque.add_argument("--bloque")
+    rutina_item_bloque.add_argument("--bloque-id", type=int, dest="bloque_id")
+    rutina_item_add.add_argument("--orden", type=int)
+    rutina_item_add.add_argument("--fuente")
+    rutina_item_add.set_defaults(func=cmd_rutina_item_add)
+
+    rutina_today = rutina_sub.add_parser("today")
+    rutina_today.add_argument("--fecha")
+    rutina_today.add_argument("--sin-pendientes", dest="sin_pendientes", action="store_true")
+    rutina_today.set_defaults(func=cmd_rutina_today)
+
+    rutina_done = rutina_sub.add_parser("done")
+    rutina_done.add_argument("--id", type=int, required=True)
+    rutina_done.add_argument("--fecha")
+    rutina_done.add_argument("--fuente")
+    rutina_done.set_defaults(func=cmd_rutina_done)
+
+    rutina_historial = rutina_sub.add_parser("historial")
+    rutina_historial.add_argument("--fecha")
+    rutina_historial.add_argument("--desde")
+    rutina_historial.add_argument("--hasta")
+    rutina_historial.set_defaults(func=cmd_rutina_historial)
+
+    rutina_stats = rutina_sub.add_parser("stats")
+    rutina_stats.add_argument("--desde", required=True)
+    rutina_stats.add_argument("--hasta", required=True)
+    rutina_stats.add_argument("--bloque")
+    rutina_stats.set_defaults(func=cmd_rutina_stats)
 
     health = subparsers.add_parser("health")
     health.add_argument("--db-path", dest="db_path")
