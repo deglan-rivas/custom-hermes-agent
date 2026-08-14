@@ -19,7 +19,7 @@ Every other Fase 0 item is closed or explicitly non-blocking:
 
 | Item | Status |
 |---|---|
-| F0.1 — LLM endpoint (opencode Go + `deepseek-v4-pro`) | 🟢 CONFIRMED |
+| F0.1 — LLM endpoint (opencode Go + `gpt-5.6-luna`, see TROUBLESHOOTING.md §10) | 🟢 CONFIRMED |
 | F0.2 — GPU visible inside containers (`nvidia-container-toolkit`) | 🟡 open, **non-blocking** — degrades to voice-less |
 | F0.3 — Telegram whitelist mechanism (`allow_from` / `TELEGRAM_ALLOWED_USERS`) | 🟢 CONFIRMED |
 | F0.4 — Telegram bot token + numeric `user_id` | 🟡 open, quick (BotFather) |
@@ -77,7 +77,9 @@ Fase 1 still ships, without voice (spec §4 — GPU unavailable degrades gracefu
 cd asistente_personal
 cp .env.template .env
 chmod 600 .env
-# fill in: LLM_BASE_URL, LLM_API_KEY (F0.1, already known: opencode Go + deepseek-v4-pro),
+# fill in: LLM_BASE_URL, LLM_API_KEY (F0.1, already known: opencode Go + gpt-5.6-luna),
+#          the default model itself lives in config.yaml (model.default), not .env,
+#          see TROUBLESHOOTING.md §10 if it needs changing again,
 #          TELEGRAM_TOKEN, TG_USER_ID (F0.4),
 #          RESTIC_REPOSITORY, RESTIC_PASSWORD, RCLONE_REMOTE (F0.5 — leave blank/unused if
 #          F0.5 is still open; do NOT bring up `restic` until they're real)
