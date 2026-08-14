@@ -1,6 +1,7 @@
 -- vida.db schema — Hermes personal assistant
 -- Design ref: openspec/changes/hermes-personal-assistant/design.md §6,
---             openspec/changes/daily-routine-tracker/design.md §3 (v2 additions)
+--             openspec/changes/daily-routine-tracker/design.md §3 (v2 additions),
+--             openspec/changes/pendientes-lifecycle/design.md §3 (v3 additions)
 --
 -- This file is the bootstrap for a FRESH database only. It must stay
 -- schema-equivalent to a version-1 database migrated through every block in
@@ -132,4 +133,19 @@ CREATE INDEX IF NOT EXISTS idx_rutina_items_bloque ON rutina_items(bloque_id, or
 CREATE INDEX IF NOT EXISTS idx_rutina_compl_fecha ON rutina_completado(fecha);
 CREATE INDEX IF NOT EXISTS idx_rutina_compl_item_fecha ON rutina_completado(item_id, fecha);
 
-INSERT OR IGNORE INTO schema_version (version) VALUES (1), (2);
+-- pendientes_completado (pendientes-lifecycle, schema_version 3) -----------
+
+CREATE TABLE IF NOT EXISTS pendientes_completado (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    pendiente_id  INTEGER NOT NULL REFERENCES pendientes(id) ON DELETE RESTRICT,
+    fecha         TEXT    NOT NULL DEFAULT (date('now', 'localtime')),
+    creado_en     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    fuente        TEXT    NOT NULL DEFAULT 'telegram'
+                          CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron')),
+    UNIQUE (pendiente_id, fecha)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pend_compl_fecha ON pendientes_completado(fecha);
+CREATE INDEX IF NOT EXISTS idx_pend_compl_pend_fecha ON pendientes_completado(pendiente_id, fecha);
+
+INSERT OR IGNORE INTO schema_version (version) VALUES (1), (2), (3);

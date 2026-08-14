@@ -48,7 +48,7 @@ DIFICULTADES = ("facil", "media", "dificil")
 # Versioned schema migrations (daily-routine-tracker design.md §3, D-0)
 # ---------------------------------------------------------------------------
 
-TARGET_SCHEMA_VERSION = 2
+TARGET_SCHEMA_VERSION = 3
 
 # Migrations are ADDITIVE ONLY (D-0.5): add tables/columns/indexes, never drop
 # or rewrite. That convention is what makes "revert the code, keep the data"
@@ -95,6 +95,32 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "CREATE INDEX idx_rutina_items_bloque ON rutina_items(bloque_id, orden)",
         "CREATE INDEX idx_rutina_compl_fecha ON rutina_completado(fecha)",
         "CREATE INDEX idx_rutina_compl_item_fecha ON rutina_completado(item_id, fecha)",
+    ),
+
+    3: (
+        # Per-occurrence completion log for pendientes (pendientes-lifecycle
+        # design.md §3, D-1/D-4). Mirrors rutina_completado: "not done for
+        # this date" == absence of a row.
+        """CREATE TABLE pendientes_completado (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            pendiente_id  INTEGER NOT NULL REFERENCES pendientes(id) ON DELETE RESTRICT,
+            fecha         TEXT    NOT NULL DEFAULT (date('now', 'localtime')),
+            creado_en     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+            fuente        TEXT    NOT NULL DEFAULT 'telegram'
+                                  CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron')),
+            UNIQUE (pendiente_id, fecha)
+        )""",
+
+        "CREATE INDEX idx_pend_compl_fecha ON pendientes_completado(fecha)",
+        "CREATE INDEX idx_pend_compl_pend_fecha ON pendientes_completado(pendiente_id, fecha)",
+
+        # D-5 backfill: every pendiente already closed becomes its own first
+        # log row, so the log is the single source of truth retroactively.
+        # Additive: writes only into a table created two statements ago.
+        """INSERT INTO pendientes_completado (pendiente_id, fecha, creado_en, fuente)
+           SELECT id, date(completado_en), completado_en, fuente
+           FROM pendientes
+           WHERE completado_en IS NOT NULL""",
     ),
 }
 
@@ -726,30 +752,56 @@ def _recurrencia_vence_hoy(recurrencia: str, hoy: date) -> bool:
     return False
 
 
+PRIORIDAD_ORDEN = {"alta": 0, "media": 1, "baja": 2}
+DIFICULTAD_ORDEN = {"facil": 0, "media": 1, "dificil": 2}   # NULL -> 1 (D-7)
+
+
 def cmd_pendiente_today(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
     # No code change needed for `dificultad`: SELECT * (via _row_to_dict) picks
     # up the new column for free. Additive contract -- a new key appears in
     # the payload, none disappear (daily-routine-tracker design.md §5.6).
     hoy = _hoy()
+    hoy_iso = hoy.isoformat()
     incluir_vencidos = args.incluir_vencidos if args.incluir_vencidos is not None else True
 
-    query = "SELECT * FROM pendientes WHERE estado = 'abierto'"
-    rows = conn.execute(query).fetchall()
+    hechos_hoy = {
+        r["pendiente_id"]
+        for r in conn.execute(
+            "SELECT pendiente_id FROM pendientes_completado WHERE fecha = ?", (hoy_iso,)
+        )
+    }  # one query, no N+1
 
-    prioridad_orden = {"alta": 0, "media": 1, "baja": 2}
+    rows = conn.execute("SELECT * FROM pendientes WHERE estado = 'abierto'").fetchall()
+
     items = []
     for r in rows:
-        vence_hoy = r["fecha_objetivo"] == hoy.isoformat()
-        vencido = (
-            incluir_vencidos
-            and r["fecha_objetivo"] is not None
-            and r["fecha_objetivo"] < hoy.isoformat()
-        )
-        recurrente_hoy = bool(r["recurrencia"]) and _recurrencia_vence_hoy(r["recurrencia"], hoy)
-        if vence_hoy or vencido or recurrente_hoy:
-            items.append(_row_to_dict(r))
+        if r["recurrencia"]:  # exclusive branch (D-6): recurring rows never
+            # match the generic sin_fecha catch-all below.
+            incluir = (
+                _recurrencia_vence_hoy(r["recurrencia"], hoy)
+                and r["id"] not in hechos_hoy
+            )
+        else:
+            vence_hoy = r["fecha_objetivo"] == hoy_iso
+            vencido = (
+                incluir_vencidos
+                and r["fecha_objetivo"] is not None
+                and r["fecha_objetivo"] < hoy_iso
+            )
+            sin_fecha = r["fecha_objetivo"] is None  # G-1: the gap being closed
+            incluir = vence_hoy or vencido or sin_fecha
 
-    items.sort(key=lambda i: (prioridad_orden.get(i["prioridad"], 9), i["hora"] or "99:99"))
+        if incluir:
+            item = _row_to_dict(r)
+            item["sin_fecha"] = r["fecha_objetivo"] is None  # derived, never persisted
+            items.append(item)
+
+    items.sort(key=lambda i: (
+        PRIORIDAD_ORDEN.get(i["prioridad"], 9),
+        DIFICULTAD_ORDEN.get(i["dificultad"], 1),  # NULL sorts as media
+        i["hora"] or "99:99",
+        i["id"],  # D-8: deterministic final tiebreak
+    ))
     return {"pendientes": items}
 
 
@@ -758,13 +810,106 @@ def cmd_pendiente_done(conn: sqlite3.Connection, args: argparse.Namespace) -> di
     if row is None:
         raise VidaError(f"no existe pendiente con id {args.id}", "no_encontrado")
 
-    with conn:
-        conn.execute(
-            "UPDATE pendientes SET estado = 'hecho', completado_en = ? WHERE id = ?",
-            (datetime.now().isoformat(timespec="seconds"), args.id),
-        )
+    ahora = datetime.now()
+    fecha_iso = ahora.date().isoformat()
+    marca = ahora.isoformat(timespec="seconds")  # same pairing as the backfill (D-5)
+    recurrente = bool(row["recurrencia"])
+
+    ya = conn.execute(
+        "SELECT creado_en FROM pendientes_completado WHERE pendiente_id = ? AND fecha = ?",
+        (args.id, fecha_iso),
+    ).fetchone()
+
+    if ya is None:
+        with conn:
+            conn.execute(
+                "INSERT INTO pendientes_completado (pendiente_id, fecha, creado_en, fuente) "
+                "VALUES (?, ?, ?, ?)",
+                (args.id, fecha_iso, marca, getattr(args, "fuente", None) or "cli"),
+            )
+            if recurrente:
+                # D-2: lifecycle never ends; only the "last completion" pointer moves.
+                conn.execute(
+                    "UPDATE pendientes SET completado_en = ? WHERE id = ?", (marca, args.id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE pendientes SET estado = 'hecho', completado_en = ? WHERE id = ?",
+                    (marca, args.id),
+                )
+
     row = conn.execute("SELECT * FROM pendientes WHERE id = ?", (args.id,)).fetchone()
-    return _row_to_dict(row)
+    payload = _row_to_dict(row)
+    payload.update({
+        "fecha": fecha_iso,
+        "ya_estaba": ya is not None,
+        "hecho_a_las": ya["creado_en"] if ya is not None else marca,
+        "recurrente": recurrente,
+    })
+    return payload
+
+
+# Literal whitelist, never derived from user input (design.md §5.5): keeps
+# `estado`, `creado_en` and `completado_en` unreachable via `pendiente edit`
+# by construction, not by validation.
+CAMPOS_EDITABLES_PENDIENTE = {
+    "titulo": "titulo",
+    "detalle": "detalle",
+    "fecha": "fecha_objetivo",
+    "hora": "hora",
+    "prioridad": "prioridad",
+    "dificultad": "dificultad",
+    "recurrencia": "recurrencia",
+}
+
+
+def cmd_pendiente_edit(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
+    row = conn.execute("SELECT * FROM pendientes WHERE id = ?", (args.id,)).fetchone()
+    if row is None:
+        raise VidaError(f"no existe pendiente con id {args.id}", "no_encontrado")
+    if row["estado"] != "abierto":
+        raise VidaError(
+            f"el pendiente {args.id} no esta abierto (estado={row['estado']!r})",
+            "pendiente_cerrado",
+        )
+
+    sets: list[str] = []
+    params: list = []
+    actualizados: list[str] = []
+
+    for flag, columna in CAMPOS_EDITABLES_PENDIENTE.items():
+        valor = getattr(args, flag, None)
+        if valor is None:
+            continue  # flag not passed (D-9)
+
+        if valor == "":  # D-9: "" clears the field to NULL
+            if flag == "titulo":
+                raise VidaError("titulo no puede quedar vacio", "validacion")
+            valor_final = None
+        else:
+            valor_final = valor
+            if flag == "prioridad" and valor_final not in PRIORIDADES:
+                raise VidaError(f"prioridad invalida: {valor_final!r}", "validacion")
+            if flag == "dificultad" and valor_final not in DIFICULTADES:
+                raise VidaError(f"dificultad invalida: {valor_final!r}", "validacion")
+            if flag == "fecha":
+                valor_final = _parse_fecha(valor_final).isoformat()
+
+        sets.append(f"{columna} = ?")
+        params.append(valor_final)
+        actualizados.append(columna)
+
+    if not sets:
+        raise VidaError("se requiere al menos un campo a editar", "validacion")
+
+    params.append(args.id)
+    with conn:
+        conn.execute(f"UPDATE pendientes SET {', '.join(sets)} WHERE id = ?", params)
+
+    row = conn.execute("SELECT * FROM pendientes WHERE id = ?", (args.id,)).fetchone()
+    payload = _row_to_dict(row)
+    payload["campos_actualizados"] = actualizados
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -1114,6 +1259,7 @@ def cmd_health(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
     tablas = [
         "gastos", "entrenamientos", "tarjetas", "contactos", "pendientes",
         "rutina_bloques", "rutina_items", "rutina_completado",
+        "pendientes_completado",
     ]
     conteos = {
         t: conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"] for t in tablas
@@ -1240,7 +1386,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     pendiente_done = pendiente_sub.add_parser("done")
     pendiente_done.add_argument("--id", type=int, required=True)
+    pendiente_done.add_argument("--fuente")
     pendiente_done.set_defaults(func=cmd_pendiente_done)
+
+    pendiente_edit = pendiente_sub.add_parser("edit")
+    pendiente_edit.add_argument("--id", type=int, required=True)
+    pendiente_edit.add_argument("--titulo")
+    pendiente_edit.add_argument("--detalle")
+    pendiente_edit.add_argument("--fecha")
+    pendiente_edit.add_argument("--hora")
+    pendiente_edit.add_argument("--prioridad")
+    pendiente_edit.add_argument("--dificultad")
+    pendiente_edit.add_argument("--recurrencia")
+    pendiente_edit.set_defaults(func=cmd_pendiente_edit)
 
     rutina = subparsers.add_parser("rutina")
     rutina_sub = rutina.add_subparsers(dest="subcomando", required=True)

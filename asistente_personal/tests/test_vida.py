@@ -136,6 +136,162 @@ def _build_v1_db(db_path: str) -> None:
     conn.close()
 
 
+# Frozen v2 DDL (schema_version=2), embedded so TestMigracionV2aV3 does NOT
+# depend on the live schema.sql -- which now IS the v3 shape (design.md §3,
+# pendientes-lifecycle). Mirrors the SCHEMA_V1_SQL pattern above.
+SCHEMA_V2_SQL = """
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE gastos (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    fecha           TEXT    NOT NULL DEFAULT (date('now', 'localtime')),
+    monto            REAL   NOT NULL CHECK (monto > 0),
+    moneda          TEXT    NOT NULL DEFAULT 'PEN' CHECK (moneda IN ('PEN', 'USD')),
+    categoria       TEXT    NOT NULL,
+    descripcion     TEXT,
+    metodo_pago     TEXT    CHECK (metodo_pago IN ('efectivo', 'debito', 'credito', 'yape', 'plin', 'transferencia')),
+    tarjeta_id      INTEGER REFERENCES tarjetas(id) ON DELETE SET NULL,
+    creado_en       TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    fuente          TEXT    NOT NULL DEFAULT 'telegram' CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron'))
+);
+
+CREATE INDEX idx_gastos_fecha ON gastos(fecha);
+CREATE INDEX idx_gastos_cat_fecha ON gastos(categoria, fecha);
+
+CREATE TABLE entrenamientos (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    fecha           TEXT    NOT NULL DEFAULT (date('now', 'localtime')),
+    ejercicio       TEXT    NOT NULL,
+    serie           INTEGER NOT NULL CHECK (serie >= 1),
+    peso            REAL    NOT NULL CHECK (peso >= 0),
+    repeticiones    INTEGER NOT NULL CHECK (repeticiones >= 1),
+    rpe             REAL    CHECK (rpe IS NULL OR (rpe BETWEEN 1 AND 10)),
+    notas           TEXT,
+    creado_en       TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    fuente          TEXT    NOT NULL DEFAULT 'telegram' CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron')),
+    UNIQUE (fecha, ejercicio, serie)
+);
+
+CREATE INDEX idx_entren_ejercicio_fecha ON entrenamientos(ejercicio, fecha DESC);
+
+CREATE TABLE tarjetas (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre              TEXT    NOT NULL UNIQUE,
+    banco               TEXT,
+    dia_corte           INTEGER NOT NULL CHECK (dia_corte BETWEEN 1 AND 31),
+    dia_pago            INTEGER NOT NULL CHECK (dia_pago BETWEEN 1 AND 31),
+    moneda              TEXT    NOT NULL DEFAULT 'PEN',
+    linea_credito       REAL    CHECK (linea_credito IS NULL OR linea_credito > 0),
+    alerta_dias_antes   INTEGER NOT NULL DEFAULT 3 CHECK (alerta_dias_antes BETWEEN 0 AND 15),
+    activa              INTEGER NOT NULL DEFAULT 1 CHECK (activa IN (0, 1)),
+    creado_en           TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE contactos (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre              TEXT    NOT NULL UNIQUE,
+    cumple_mes          INTEGER NOT NULL CHECK (cumple_mes BETWEEN 1 AND 12),
+    cumple_dia          INTEGER NOT NULL CHECK (cumple_dia BETWEEN 1 AND 31),
+    cumple_anio         INTEGER CHECK (cumple_anio IS NULL OR (cumple_anio BETWEEN 1900 AND 2100)),
+    relacion            TEXT,
+    alerta_dias_antes   INTEGER NOT NULL DEFAULT 7 CHECK (alerta_dias_antes BETWEEN 0 AND 60),
+    notas               TEXT,
+    creado_en           TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE pendientes (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    titulo          TEXT    NOT NULL,
+    detalle         TEXT,
+    fecha_objetivo  TEXT,
+    hora            TEXT,
+    prioridad       TEXT    NOT NULL DEFAULT 'media' CHECK (prioridad IN ('alta', 'media', 'baja')),
+    estado          TEXT    NOT NULL DEFAULT 'abierto' CHECK (estado IN ('abierto', 'hecho', 'cancelado')),
+    recurrencia     TEXT,
+    completado_en   TEXT,
+    creado_en       TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    fuente          TEXT    NOT NULL DEFAULT 'telegram' CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron')),
+    dificultad      TEXT    CHECK (dificultad IS NULL OR dificultad IN ('facil', 'media', 'dificil'))
+);
+
+CREATE INDEX idx_pend_estado_fecha ON pendientes(estado, fecha_objetivo);
+
+CREATE TABLE schema_version (
+    version     INTEGER PRIMARY KEY,
+    aplicado_en TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE rutina_bloques (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre         TEXT    NOT NULL UNIQUE,
+    hora_objetivo  TEXT,
+    orden          INTEGER NOT NULL DEFAULT 0,
+    activo         INTEGER NOT NULL DEFAULT 1 CHECK (activo IN (0, 1)),
+    creado_en      TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    fuente         TEXT    NOT NULL DEFAULT 'telegram'
+                           CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron'))
+);
+
+CREATE TABLE rutina_items (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    bloque_id  INTEGER NOT NULL REFERENCES rutina_bloques(id) ON DELETE RESTRICT,
+    nombre     TEXT    NOT NULL,
+    orden      INTEGER NOT NULL DEFAULT 0,
+    activo     INTEGER NOT NULL DEFAULT 1 CHECK (activo IN (0, 1)),
+    creado_en  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    fuente     TEXT    NOT NULL DEFAULT 'telegram'
+                       CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron')),
+    UNIQUE (bloque_id, nombre)
+);
+
+CREATE TABLE rutina_completado (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id    INTEGER NOT NULL REFERENCES rutina_items(id) ON DELETE RESTRICT,
+    fecha      TEXT    NOT NULL DEFAULT (date('now', 'localtime')),
+    creado_en  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    fuente     TEXT    NOT NULL DEFAULT 'telegram'
+                       CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron')),
+    UNIQUE (item_id, fecha)
+);
+
+CREATE INDEX idx_rutina_items_bloque ON rutina_items(bloque_id, orden);
+CREATE INDEX idx_rutina_compl_fecha ON rutina_completado(fecha);
+CREATE INDEX idx_rutina_compl_item_fecha ON rutina_completado(item_id, fecha);
+
+INSERT OR IGNORE INTO schema_version (version) VALUES (1), (2);
+"""
+
+
+def _build_v2_db(db_path: str) -> None:
+    """Build a frozen v2 database with seed rows, including a CLOSED pendiente
+    (completado_en set) so the D-5 backfill has something to backfill."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(SCHEMA_V2_SQL)
+    conn.commit()
+    with conn:
+        conn.execute("INSERT INTO gastos (monto, categoria) VALUES (10.0, 'comida')")
+        conn.execute(
+            "INSERT INTO entrenamientos (fecha, ejercicio, serie, peso, repeticiones) "
+            "VALUES ('2025-06-01', 'sentadilla', 1, 80, 8)"
+        )
+        conn.execute("INSERT INTO tarjetas (nombre, dia_corte, dia_pago) VALUES ('BCP Visa', 15, 5)")
+        conn.execute("INSERT INTO contactos (nombre, cumple_mes, cumple_dia) VALUES ('Ana', 1, 3)")
+        # open, one-shot
+        conn.execute("INSERT INTO pendientes (titulo) VALUES ('Pagar luz')")
+        # closed, one-shot -- this is what the D-5 backfill must pick up
+        conn.execute(
+            "INSERT INTO pendientes (titulo, estado, completado_en, fuente) "
+            "VALUES ('Pagar agua', 'hecho', '2025-06-01T10:00:00', 'cli')"
+        )
+        # closed, recurring -- also backfilled (backfill has no recurrencia branch)
+        conn.execute(
+            "INSERT INTO pendientes (titulo, recurrencia, estado, completado_en, fuente) "
+            "VALUES ('Tomar la pastilla', 'diaria', 'hecho', '2025-06-02T08:00:00', 'cli')"
+        )
+    conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Date helper edge cases — the core TDD targets called out in the design doc
 # ---------------------------------------------------------------------------
@@ -262,6 +418,9 @@ _V2_INDEXES = (
     "idx_rutina_compl_fecha",
     "idx_rutina_compl_item_fecha",
 )
+_V2_TABLES = _V1_TABLES + _V2_ONLY_TABLES
+_V3_ONLY_TABLES = ("pendientes_completado",)
+_V3_INDEXES = ("idx_pend_compl_fecha", "idx_pend_compl_pend_fecha")
 
 
 class TestMigracionV1aV2(unittest.TestCase):
@@ -274,14 +433,17 @@ class TestMigracionV1aV2(unittest.TestCase):
         self.tmpdir.cleanup()
 
     def test_v1_db_is_migrated_to_v2_on_open(self):
+        # Sanctioned edit (design.md §3): migrations now compose past v2, so a
+        # v1 DB opened with the current code lands on TARGET_SCHEMA_VERSION
+        # (3), not hardcoded at 2. This is what "the mechanism composes" means.
         conn = vida.get_connection(self.db_path)
         try:
-            self.assertEqual(vida._schema_version(conn), 2)
+            self.assertEqual(vida._schema_version(conn), vida.TARGET_SCHEMA_VERSION)
             versiones = [
                 r["version"]
                 for r in conn.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
             ]
-            self.assertEqual(versiones, [1, 2])
+            self.assertEqual(versiones, [1, 2, 3])
         finally:
             conn.close()
 
@@ -387,6 +549,7 @@ class TestMigracionV1aV2(unittest.TestCase):
         self.assertEqual(versiones_a, versiones_b)
 
     def test_migration_is_idempotent(self):
+        # Sanctioned edit (design.md §3): see test_v1_db_is_migrated_to_v2_on_open.
         conn = vida.get_connection(self.db_path)
         conn.close()
         conn2 = vida.get_connection(self.db_path)
@@ -394,12 +557,12 @@ class TestMigracionV1aV2(unittest.TestCase):
             conn2.close()
             conn3 = vida.get_connection(self.db_path)
             try:
-                self.assertEqual(vida._schema_version(conn3), 2)
+                self.assertEqual(vida._schema_version(conn3), vida.TARGET_SCHEMA_VERSION)
                 versiones = [
                     r["version"]
                     for r in conn3.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
                 ]
-                self.assertEqual(versiones, [1, 2])
+                self.assertEqual(versiones, [1, 2, 3])
             finally:
                 conn3.close()
         except Exception:
@@ -436,8 +599,11 @@ class TestMigracionV1aV2(unittest.TestCase):
             check_conn.close()
 
     def test_missing_migration_definition_reports_json_error(self):
+        # Sanctioned edit: bumped from 3 -> 4 since MIGRATIONS[3] now exists
+        # (pendientes-lifecycle). The test's intent (a target beyond every
+        # defined migration) is unchanged.
         original_target = vida.TARGET_SCHEMA_VERSION
-        vida.TARGET_SCHEMA_VERSION = 3
+        vida.TARGET_SCHEMA_VERSION = 4
         try:
             with self.assertRaises(vida.VidaError) as ctx:
                 vida.get_connection(self.db_path)
@@ -446,17 +612,195 @@ class TestMigracionV1aV2(unittest.TestCase):
             vida.TARGET_SCHEMA_VERSION = original_target
 
     def test_fresh_db_never_runs_migrations(self):
+        # Sanctioned edit: schema.sql now inserts schema_version rows through 3.
         fresh_path = os.path.join(self.tmpdir.name, "fresh2.db")
         original_migrations = vida.MIGRATIONS
         vida.MIGRATIONS = {}
         try:
             conn = vida.get_connection(fresh_path)
             try:
-                self.assertEqual(vida._schema_version(conn), 2)
+                self.assertEqual(vida._schema_version(conn), 3)
             finally:
                 conn.close()
         finally:
             vida.MIGRATIONS = original_migrations
+
+
+class TestMigracionV2aV3(unittest.TestCase):
+    """v2 -> v3: `pendientes_completado` append-only log (design.md §3, D-1/D-4/D-5)."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmpdir.name, "vida.db")
+        _build_v2_db(self.db_path)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_v2_db_is_migrated_to_v3_on_open(self):
+        conn = vida.get_connection(self.db_path)
+        try:
+            self.assertEqual(vida._schema_version(conn), 3)
+            versiones = [
+                r["version"]
+                for r in conn.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
+            ]
+            self.assertEqual(versiones, [1, 2, 3])
+        finally:
+            conn.close()
+
+    def test_migration_preserves_every_row(self):
+        pre_counts = {}
+        pre_conn = sqlite3.connect(self.db_path)
+        pre_conn.row_factory = sqlite3.Row
+        for t in _V2_TABLES:
+            pre_counts[t] = pre_conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"]
+        pre_pendiente = dict(pre_conn.execute("SELECT * FROM pendientes WHERE id = 1").fetchone())
+        pre_conn.close()
+
+        conn = vida.get_connection(self.db_path)
+        try:
+            for t in _V2_TABLES:
+                n = conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"]
+                self.assertEqual(n, pre_counts[t], msg=f"row count changed for {t}")
+            post_pendiente = dict(conn.execute("SELECT * FROM pendientes WHERE id = 1").fetchone())
+            for key in pre_pendiente:
+                self.assertEqual(post_pendiente[key], pre_pendiente[key], msg=f"column {key} changed")
+        finally:
+            conn.close()
+
+    def test_backfill_creates_one_log_row_per_closed_pendiente(self):
+        conn = vida.get_connection(self.db_path)
+        try:
+            cerrados = conn.execute(
+                "SELECT id, completado_en, fuente FROM pendientes WHERE completado_en IS NOT NULL"
+            ).fetchall()
+            self.assertEqual(len(cerrados), 2)  # seeded: 'Pagar agua' + 'Tomar la pastilla'
+            for row in cerrados:
+                log_rows = conn.execute(
+                    "SELECT fecha FROM pendientes_completado WHERE pendiente_id = ?", (row["id"],)
+                ).fetchall()
+                self.assertEqual(len(log_rows), 1)
+                self.assertEqual(log_rows[0]["fecha"], row["completado_en"][:10])
+
+            abierto_id = conn.execute(
+                "SELECT id FROM pendientes WHERE titulo = 'Pagar luz'"
+            ).fetchone()["id"]
+            n_abierto = conn.execute(
+                "SELECT COUNT(*) AS n FROM pendientes_completado WHERE pendiente_id = ?", (abierto_id,)
+            ).fetchone()["n"]
+            self.assertEqual(n_abierto, 0)
+        finally:
+            conn.close()
+
+    def test_fresh_bootstrap_and_migrated_v2_have_identical_schema(self):
+        fresh_path = os.path.join(self.tmpdir.name, "fresh.db")
+        fresh_conn = vida.get_connection(fresh_path)
+        migrated_conn = vida.get_connection(self.db_path)
+        try:
+            self._assert_same_schema(fresh_conn, migrated_conn)
+        finally:
+            fresh_conn.close()
+            migrated_conn.close()
+
+    def _assert_same_schema(self, conn_a, conn_b):
+        tablas_a = {
+            r["name"]
+            for r in conn_a.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name != 'sqlite_sequence'"
+            ).fetchall()
+        }
+        tablas_b = {
+            r["name"]
+            for r in conn_b.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name != 'sqlite_sequence'"
+            ).fetchall()
+        }
+        self.assertEqual(tablas_a, tablas_b)
+
+        for tabla in sorted(tablas_a):
+            info_a = [tuple(r) for r in conn_a.execute(f"PRAGMA table_info({tabla})").fetchall()]
+            info_b = [tuple(r) for r in conn_b.execute(f"PRAGMA table_info({tabla})").fetchall()]
+            self.assertEqual(info_a, info_b, msg=f"table_info differs for {tabla}")
+
+            idx_a = sorted(
+                (r["name"], r["unique"]) for r in conn_a.execute(f"PRAGMA index_list({tabla})").fetchall()
+            )
+            idx_b = sorted(
+                (r["name"], r["unique"]) for r in conn_b.execute(f"PRAGMA index_list({tabla})").fetchall()
+            )
+            self.assertEqual(idx_a, idx_b, msg=f"index_list differs for {tabla}")
+
+            for nombre_idx, _ in idx_a:
+                cols_a = [tuple(r) for r in conn_a.execute(f"PRAGMA index_info({nombre_idx})").fetchall()]
+                cols_b = [tuple(r) for r in conn_b.execute(f"PRAGMA index_info({nombre_idx})").fetchall()]
+                self.assertEqual(cols_a, cols_b, msg=f"index_info differs for {nombre_idx}")
+
+            fk_a = [tuple(r) for r in conn_a.execute(f"PRAGMA foreign_key_list({tabla})").fetchall()]
+            fk_b = [tuple(r) for r in conn_b.execute(f"PRAGMA foreign_key_list({tabla})").fetchall()]
+            self.assertEqual(fk_a, fk_b, msg=f"foreign_key_list differs for {tabla}")
+
+        versiones_a = [r["version"] for r in conn_a.execute("SELECT version FROM schema_version ORDER BY version")]
+        versiones_b = [r["version"] for r in conn_b.execute("SELECT version FROM schema_version ORDER BY version")]
+        self.assertEqual(versiones_a, versiones_b)
+
+    def test_migration_is_idempotent(self):
+        conn = vida.get_connection(self.db_path)
+        conn.close()
+        conn2 = vida.get_connection(self.db_path)
+        conn2.close()
+        conn3 = vida.get_connection(self.db_path)
+        try:
+            self.assertEqual(vida._schema_version(conn3), 3)
+            versiones = [
+                r["version"]
+                for r in conn3.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
+            ]
+            self.assertEqual(versiones, [1, 2, 3])
+            n_log = conn3.execute("SELECT COUNT(*) AS n FROM pendientes_completado").fetchone()["n"]
+            self.assertEqual(n_log, 2)  # no duplicate backfill rows across re-opens
+        finally:
+            conn3.close()
+
+    def test_failed_migration_rolls_back_completely(self):
+        original = vida.MIGRATIONS[3]
+        rota = original[:-1] + ("ESTO NO ES SQL VALIDO",)
+        vida.MIGRATIONS[3] = rota
+        try:
+            with self.assertRaises(Exception):
+                vida.get_connection(self.db_path)
+        finally:
+            vida.MIGRATIONS[3] = original
+
+        check_conn = sqlite3.connect(self.db_path)
+        check_conn.row_factory = sqlite3.Row
+        try:
+            version = check_conn.execute(
+                "SELECT COALESCE(MAX(version), 0) AS v FROM schema_version"
+            ).fetchone()["v"]
+            self.assertEqual(version, 2)
+            nombres = {
+                r["name"]
+                for r in check_conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            for t in _V3_ONLY_TABLES:
+                self.assertNotIn(t, nombres)
+        finally:
+            check_conn.close()
+
+    def test_health_incluye_pendientes_completado(self):
+        conn = vida.get_connection(self.db_path)
+        conn.close()
+        result = subprocess.run(
+            [sys.executable, VIDA_PY, "health"],
+            env=dict(os.environ, VIDA_DB=self.db_path),
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertIn("pendientes_completado", payload["data"]["conteos"])
 
 
 # ---------------------------------------------------------------------------
@@ -689,7 +1033,9 @@ class TestSubcommandContract(unittest.TestCase):
         result = self._run("health")
         payload = self._assert_json_ok(result)
         self.assertTrue(payload["data"]["integrity_ok"])
-        self.assertEqual(payload["data"]["schema_version"], 2)
+        # Sanctioned edit (design.md §7.1): schema_version bumped 2 -> 3 by
+        # pendientes-lifecycle's MIGRATIONS[3] (pendientes_completado).
+        self.assertEqual(payload["data"]["schema_version"], 3)
 
     def test_health_incluye_tablas_rutina(self):
         result = self._run("health")
@@ -993,6 +1339,355 @@ class TestRutinaSubcomandos(unittest.TestCase):
         result = self._run("rutina", "done", "--id", str(item["id"]), "--fecha", "no-es-una-fecha")
         payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
         self.assertEqual(payload["codigo"], "fecha_invalida")
+
+
+# ---------------------------------------------------------------------------
+# pendientes-lifecycle (G4 — recurring reset via pendientes_completado)
+# ---------------------------------------------------------------------------
+
+class TestPendienteRecurrente(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmpdir.name, "vida.db")
+        self.env = dict(os.environ, VIDA_DB=self.db_path)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _run(self, *args):
+        return subprocess.run(
+            [sys.executable, VIDA_PY, *args], env=self.env, capture_output=True, text=True
+        )
+
+    def _assert_json_ok(self, result, expect_ok=True, expect_exit=0):
+        self.assertEqual(result.returncode, expect_exit, msg=result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["ok"], expect_ok)
+        return payload
+
+    def _add(self, titulo, **kwargs):
+        args = ["pendiente", "add", "--titulo", titulo]
+        for flag, val in kwargs.items():
+            args += [f"--{flag.replace('_', '-')}", str(val)]
+        return self._assert_json_ok(self._run(*args))["data"]
+
+    def test_recurrente_diaria_desaparece_hoy_tras_done(self):
+        p = self._add("Tomar la pastilla", recurrencia="diaria")
+        self._assert_json_ok(self._run("pendiente", "done", "--id", str(p["id"])))
+
+        result = self._run("pendiente", "today")
+        payload = self._assert_json_ok(result)
+        self.assertFalse(any(x["id"] == p["id"] for x in payload["data"]["pendientes"]))
+
+    def test_recurrente_diaria_reaparece_manana(self):
+        p = self._add("Tomar la pastilla", recurrencia="diaria")
+        ayer = (date.today() - timedelta(days=1)).isoformat()
+        conn = vida.get_connection(self.db_path)
+        with conn:
+            conn.execute(
+                "INSERT INTO pendientes_completado (pendiente_id, fecha) VALUES (?, ?)",
+                (p["id"], ayer),
+            )
+        conn.close()
+
+        result = self._run("pendiente", "today")
+        payload = self._assert_json_ok(result)
+        self.assertTrue(any(x["id"] == p["id"] for x in payload["data"]["pendientes"]))
+
+    def test_recurrente_no_cambia_de_estado(self):
+        p = self._add("Tomar la pastilla", recurrencia="diaria")
+        result = self._run("pendiente", "done", "--id", str(p["id"]))
+        payload = self._assert_json_ok(result)
+        self.assertEqual(payload["data"]["estado"], "abierto")
+        self.assertIsNotNone(payload["data"]["completado_en"])
+
+    def test_recurrente_semanal_no_aparece_fuera_de_su_dia(self):
+        hoy = date.today()
+        otro_dia = (hoy.weekday() + 3) % 7
+        dias_semana = {0: "lun", 1: "mar", 2: "mie", 3: "jue", 4: "vie", 5: "sab", 6: "dom"}
+        p = self._add("Sacar la basura", recurrencia=f"semanal:{dias_semana[otro_dia]}")
+
+        result = self._run("pendiente", "today")
+        payload = self._assert_json_ok(result)
+        self.assertFalse(any(x["id"] == p["id"] for x in payload["data"]["pendientes"]))
+
+    def test_recurrente_mensual_respeta_clamp(self):
+        # mensual:31 clamped to the last day of a 30-day month (design D-0/D-6
+        # inherits _recurrencia_vence_hoy, unchanged clamp logic).
+        p = self._add("Pagar alquiler", recurrencia="mensual:31")
+        conn = vida.get_connection(self.db_path)
+        try:
+            row = conn.execute("SELECT recurrencia FROM pendientes WHERE id = ?", (p["id"],)).fetchone()
+            self.assertEqual(row["recurrencia"], "mensual:31")
+            # Directly exercise the pure helper for the clamp edge case (30-day month).
+            self.assertTrue(vida._recurrencia_vence_hoy("mensual:31", date(2025, 4, 30)))
+            self.assertFalse(vida._recurrencia_vence_hoy("mensual:31", date(2025, 4, 29)))
+        finally:
+            conn.close()
+
+    def test_done_dos_veces_mismo_dia_es_idempotente(self):
+        p = self._add("Tomar la pastilla", recurrencia="diaria")
+        self._assert_json_ok(self._run("pendiente", "done", "--id", str(p["id"])))
+        result = self._run("pendiente", "done", "--id", str(p["id"]))
+        payload = self._assert_json_ok(result)
+        self.assertTrue(payload["data"]["ya_estaba"])
+
+        conn = vida.get_connection(self.db_path)
+        try:
+            n = conn.execute(
+                "SELECT COUNT(*) AS n FROM pendientes_completado WHERE pendiente_id = ?", (p["id"],)
+            ).fetchone()["n"]
+            self.assertEqual(n, 1)
+        finally:
+            conn.close()
+
+    def test_one_shot_done_sigue_marcando_hecho(self):
+        p = self._add("Pagar luz")
+        result = self._run("pendiente", "done", "--id", str(p["id"]))
+        payload = self._assert_json_ok(result)
+        self.assertEqual(payload["data"]["estado"], "hecho")
+
+        conn = vida.get_connection(self.db_path)
+        try:
+            n = conn.execute(
+                "SELECT COUNT(*) AS n FROM pendientes_completado WHERE pendiente_id = ?", (p["id"],)
+            ).fetchone()["n"]
+            self.assertEqual(n, 1)
+        finally:
+            conn.close()
+
+
+# ---------------------------------------------------------------------------
+# pendiente today (G1 — sin_fecha, unbounded, sort)
+# ---------------------------------------------------------------------------
+
+class TestPendienteToday(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmpdir.name, "vida.db")
+        self.env = dict(os.environ, VIDA_DB=self.db_path)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _run(self, *args):
+        return subprocess.run(
+            [sys.executable, VIDA_PY, *args], env=self.env, capture_output=True, text=True
+        )
+
+    def _assert_json_ok(self, result, expect_ok=True, expect_exit=0):
+        self.assertEqual(result.returncode, expect_exit, msg=result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["ok"], expect_ok)
+        return payload
+
+    def _add(self, titulo, **kwargs):
+        args = ["pendiente", "add", "--titulo", titulo]
+        for flag, val in kwargs.items():
+            args += [f"--{flag.replace('_', '-')}", str(val)]
+        return self._assert_json_ok(self._run(*args))["data"]
+
+    def _today(self):
+        result = self._run("pendiente", "today")
+        return self._assert_json_ok(result)["data"]["pendientes"]
+
+    def test_sin_fecha_aparece_y_marca_flag(self):
+        p = self._add("Llamar al dentista")
+        items = self._today()
+        item = next(x for x in items if x["id"] == p["id"])
+        self.assertTrue(item["sin_fecha"])
+
+    def test_con_fecha_marca_sin_fecha_false(self):
+        hoy = date.today().isoformat()
+        p = self._add("Pagar luz", fecha=hoy)
+        items = self._today()
+        item = next(x for x in items if x["id"] == p["id"])
+        self.assertFalse(item["sin_fecha"])
+
+    def test_sin_limite(self):
+        for i in range(15):
+            self._add(f"Tarea {i}")
+        items = self._today()
+        self.assertEqual(len(items), 15)
+
+    def test_orden_prioridad_luego_dificultad(self):
+        self._add("dificil", prioridad="alta", dificultad="dificil")
+        self._add("facil", prioridad="alta", dificultad="facil")
+        self._add("media", prioridad="alta", dificultad="media")
+        items = self._today()
+        self.assertEqual([i["titulo"] for i in items], ["facil", "media", "dificil"])
+
+    def test_dificultad_null_ordena_como_media(self):
+        # D-7 (design.md, binding over spec.md's prose): NULL ties with
+        # 'media' (rank 1), so it sorts BEFORE 'dificil' (rank 2) -- not last.
+        # Behaviour-preserving: every production row has dificultad = NULL,
+        # so today's order stays prioridad -> hora until users classify.
+        self._add("dificil", prioridad="media", dificultad="dificil")
+        self._add("sin_clasificar", prioridad="media")
+        items = self._today()
+        titulos = [i["titulo"] for i in items]
+        self.assertLess(titulos.index("sin_clasificar"), titulos.index("dificil"))
+
+    def test_orden_desempata_por_hora_luego_id(self):
+        p1 = self._add("segundo", prioridad="alta", hora="10:00")
+        p2 = self._add("primero", prioridad="alta", hora="09:00")
+        items = self._today()
+        self.assertEqual([i["id"] for i in items], [p2["id"], p1["id"]])
+
+    def test_vencidos_siguen_apareciendo(self):
+        ayer = (date.today() - timedelta(days=1)).isoformat()
+        p = self._add("Vencido", fecha=ayer)
+        items = self._today()
+        self.assertTrue(any(x["id"] == p["id"] for x in items))
+
+
+# ---------------------------------------------------------------------------
+# pendiente edit (G2)
+# ---------------------------------------------------------------------------
+
+class TestPendienteEdit(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmpdir.name, "vida.db")
+        self.env = dict(os.environ, VIDA_DB=self.db_path)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _run(self, *args):
+        return subprocess.run(
+            [sys.executable, VIDA_PY, *args], env=self.env, capture_output=True, text=True
+        )
+
+    def _assert_json_ok(self, result, expect_ok=True, expect_exit=0):
+        self.assertEqual(result.returncode, expect_exit, msg=result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["ok"], expect_ok)
+        return payload
+
+    def _add(self, titulo, **kwargs):
+        args = ["pendiente", "add", "--titulo", titulo]
+        for flag, val in kwargs.items():
+            args += [f"--{flag.replace('_', '-')}", str(val)]
+        return self._assert_json_ok(self._run(*args))["data"]
+
+    def _edit(self, pendiente_id, **kwargs):
+        args = ["pendiente", "edit", "--id", str(pendiente_id)]
+        for flag, val in kwargs.items():
+            args += [f"--{flag.replace('_', '-')}", str(val)]
+        return self._run(*args)
+
+    def test_edit_titulo(self):
+        p = self._add("Pagar luz")
+        payload = self._assert_json_ok(self._edit(p["id"], titulo="Pagar luz de agosto"))
+        self.assertEqual(payload["data"]["titulo"], "Pagar luz de agosto")
+        self.assertIn("titulo", payload["data"]["campos_actualizados"])
+
+    def test_edit_detalle(self):
+        p = self._add("Pagar luz")
+        payload = self._assert_json_ok(self._edit(p["id"], detalle="via Yape"))
+        self.assertEqual(payload["data"]["detalle"], "via Yape")
+        self.assertIn("detalle", payload["data"]["campos_actualizados"])
+
+    def test_edit_fecha(self):
+        p = self._add("Pagar luz")
+        manana = (date.today() + timedelta(days=1)).isoformat()
+        payload = self._assert_json_ok(self._edit(p["id"], fecha=manana))
+        self.assertEqual(payload["data"]["fecha_objetivo"], manana)
+        self.assertIn("fecha_objetivo", payload["data"]["campos_actualizados"])
+
+    def test_edit_hora(self):
+        p = self._add("Pagar luz")
+        payload = self._assert_json_ok(self._edit(p["id"], hora="15:00"))
+        self.assertEqual(payload["data"]["hora"], "15:00")
+        self.assertIn("hora", payload["data"]["campos_actualizados"])
+
+    def test_edit_prioridad(self):
+        p = self._add("Pagar luz")
+        payload = self._assert_json_ok(self._edit(p["id"], prioridad="alta"))
+        self.assertEqual(payload["data"]["prioridad"], "alta")
+        self.assertIn("prioridad", payload["data"]["campos_actualizados"])
+
+    def test_edit_dificultad(self):
+        p = self._add("Pagar luz")
+        payload = self._assert_json_ok(self._edit(p["id"], dificultad="facil"))
+        self.assertEqual(payload["data"]["dificultad"], "facil")
+        self.assertIn("dificultad", payload["data"]["campos_actualizados"])
+
+    def test_edit_recurrencia(self):
+        p = self._add("Pagar luz")
+        payload = self._assert_json_ok(self._edit(p["id"], recurrencia="diaria"))
+        self.assertEqual(payload["data"]["recurrencia"], "diaria")
+        self.assertIn("recurrencia", payload["data"]["campos_actualizados"])
+
+    def test_edit_no_encontrado(self):
+        result = self._edit(9999, titulo="x")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "no_encontrado")
+
+    def test_edit_sin_campos_es_validacion(self):
+        p = self._add("Pagar luz")
+        result = self._run("pendiente", "edit", "--id", str(p["id"]))
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "validacion")
+
+    def test_edit_prioridad_invalida(self):
+        p = self._add("Pagar luz")
+        result = self._edit(p["id"], prioridad="urgente")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "validacion")
+
+    def test_edit_dificultad_invalida(self):
+        p = self._add("Pagar luz")
+        result = self._edit(p["id"], dificultad="imposible")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "validacion")
+
+    def test_edit_fecha_vacia_limpia_el_campo(self):
+        hoy = date.today().isoformat()
+        p = self._add("Pagar luz", fecha=hoy)
+        payload = self._assert_json_ok(self._edit(p["id"], fecha=""))
+        self.assertIsNone(payload["data"]["fecha_objetivo"])
+
+    def test_edit_titulo_vacio_rechazado(self):
+        p = self._add("Pagar luz")
+        result = self._edit(p["id"], titulo="")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "validacion")
+
+    def test_edit_pendiente_cerrado_rechazado(self):
+        p = self._add("Pagar luz")
+        self._assert_json_ok(self._run("pendiente", "done", "--id", str(p["id"])))
+        result = self._edit(p["id"], titulo="otro")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "pendiente_cerrado")
+
+    def test_edit_no_puede_tocar_estado_ni_completado_en(self):
+        p = self._add("Pagar luz")
+        parser = vida.build_parser()
+        edit_parser = None
+        for action in parser._subparsers._group_actions:
+            if "pendiente" in action.choices:
+                pend_sub = action.choices["pendiente"]
+                for sub_action in pend_sub._subparsers._group_actions:
+                    if "edit" in sub_action.choices:
+                        edit_parser = sub_action.choices["edit"]
+        self.assertIsNotNone(edit_parser)
+        flags = {opt for a in edit_parser._actions for opt in a.option_strings}
+        self.assertNotIn("--estado", flags)
+        self.assertNotIn("--creado-en", flags)
+        self.assertNotIn("--completado-en", flags)
+
+        payload = self._assert_json_ok(
+            self._edit(
+                p["id"],
+                titulo="t", detalle="d", fecha=date.today().isoformat(), hora="09:00",
+                prioridad="alta", dificultad="facil", recurrencia="diaria",
+            )
+        )
+        self.assertEqual(payload["data"]["estado"], "abierto")
+        self.assertIsNone(payload["data"]["completado_en"])
+        self.assertEqual(payload["data"]["creado_en"], p["creado_en"])
 
 
 if __name__ == "__main__":

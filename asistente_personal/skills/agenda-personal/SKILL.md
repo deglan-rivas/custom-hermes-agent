@@ -35,6 +35,22 @@ Marcar un pendiente como hecho (requiere el id resuelto primero):
 python3 /opt/data/bin/vida.py pendiente done --id 12
 ```
 
+Si el pendiente es recurrente (`recurrencia` no nula), marcarlo hecho NO lo cierra para
+siempre: reaparece en `pendiente today` en su próxima ocurrencia (mañana si es `diaria`, el
+próximo día de la semana si es `semanal:X`, etc.). Solo desaparece hasta ese día.
+
+Editar un pendiente existente (requiere el id resuelto primero — NUNCA lo adivines, resolvelo
+con `pendiente today` o `pendiente historial` antes de llamar `edit`):
+
+```
+python3 /opt/data/bin/vida.py pendiente edit --id 12 --fecha 2026-08-20 --prioridad alta
+```
+
+Campos editables: `--titulo`, `--detalle`, `--fecha`, `--hora`, `--prioridad`, `--dificultad`,
+`--recurrencia`. Al menos uno es obligatorio. Pasar el flag con valor vacío (`--fecha ""`) borra
+ese campo. No se puede editar un pendiente que ya está `hecho` o `cancelado` (falla con
+`codigo: "pendiente_cerrado"`).
+
 Agregar un cumpleaños:
 
 ```
@@ -61,14 +77,15 @@ python3 /opt/data/bin/vida.py cumple upcoming --dias 30
 | "todos los 5 del mes" | `--recurrencia mensual:5` |
 | "¿qué tengo hoy/pendiente?" | `pendiente today` |
 | "ya lo hice" | primero `pendiente today` para resolver el `id` correcto por título, luego `pendiente done --id <id>` |
+| "en realidad es para el viernes", "cambiale la prioridad" | primero `pendiente today` (o `historial`) para resolver el `id`, luego `pendiente edit --id <id> --fecha ...` |
 | "el cumple de X es el DD de MES" | `cumple add --nombre X --mes <MES numérico> --dia DD` (agregar `--anio` solo si el usuario menciona el año de nacimiento) |
 | "¿quién cumple pronto?", "en los próximos 60 días" | `cumple upcoming --dias 60` |
 
 ## 4. Cómo responder
 
 - Después de `pendiente add`: confirmá `titulo` y `fecha_objetivo` (o decí explícitamente que quedó sin fecha si no se dio una).
-- Después de `pendiente today`: listá cada item de `data.pendientes` con su `titulo`, `hora` (si tiene) y `prioridad`. No agregues pendientes que no estén en la lista.
-- Para "ya lo hice": SIEMPRE resolvé el `id` corriendo `pendiente today` (o preguntando cuál, si hay ambigüedad) antes de llamar `pendiente done` — nunca adivines un id.
+- Después de `pendiente today`: listá cada item de `data.pendientes` con su `titulo`, `hora` (si tiene) y `prioridad`. Cada item trae `sin_fecha` (`true`/`false`); si `sin_fecha` es `true`, mencionalo como "sin fecha fija" en vez de omitirlo. No agregues pendientes que no estén en la lista.
+- Para "ya lo hice" y para "editá el pendiente de...": SIEMPRE resolvé el `id` corriendo `pendiente today` (o `pendiente historial`, o preguntando cuál si hay ambigüedad) antes de llamar `pendiente done` o `pendiente edit` — nunca adivines un id.
 - Después de `cumple add`: confirmá `nombre`, `cumple_mes` y `cumple_dia`.
 - Después de `cumple upcoming`: por cada entrada en `data.proximos`, reportá `nombre`, `fecha_este_anio` y `dias_restantes` juntos. Si `edad_a_cumplir` no es `null`, incluí la edad que cumple.
 
