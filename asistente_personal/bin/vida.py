@@ -676,12 +676,15 @@ def cmd_cumple_upcoming(conn: sqlite3.Connection, args: argparse.Namespace) -> d
 def cmd_pendiente_add(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
     if args.prioridad and args.prioridad not in PRIORIDADES:
         raise VidaError(f"prioridad invalida: {args.prioridad!r}", "validacion")
+    if args.dificultad and args.dificultad not in DIFICULTADES:
+        raise VidaError(f"dificultad invalida: {args.dificultad!r}", "validacion")
 
     with conn:
         cur = conn.execute(
             """
-            INSERT INTO pendientes (titulo, detalle, fecha_objetivo, hora, prioridad, recurrencia)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO pendientes (titulo, detalle, fecha_objetivo, hora, prioridad,
+                                     recurrencia, dificultad)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 args.titulo,
@@ -690,6 +693,7 @@ def cmd_pendiente_add(conn: sqlite3.Connection, args: argparse.Namespace) -> dic
                 args.hora,
                 args.prioridad or "media",
                 args.recurrencia,
+                args.dificultad,
             ),
         )
         pendiente_id = cur.lastrowid
@@ -716,6 +720,9 @@ def _recurrencia_vence_hoy(recurrencia: str, hoy: date) -> bool:
 
 
 def cmd_pendiente_today(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
+    # No code change needed for `dificultad`: SELECT * (via _row_to_dict) picks
+    # up the new column for free. Additive contract -- a new key appears in
+    # the payload, none disappear (daily-routine-tracker design.md §5.6).
     hoy = _hoy()
     incluir_vencidos = args.incluir_vencidos if args.incluir_vencidos is not None else True
 
@@ -879,6 +886,7 @@ def build_parser() -> argparse.ArgumentParser:
     pendiente_add.add_argument("--prioridad")
     pendiente_add.add_argument("--detalle")
     pendiente_add.add_argument("--recurrencia")
+    pendiente_add.add_argument("--dificultad")
     pendiente_add.set_defaults(func=cmd_pendiente_add)
 
     pendiente_today = pendiente_sub.add_parser("today")

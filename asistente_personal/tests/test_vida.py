@@ -513,6 +513,38 @@ class TestSchemaConstraints(unittest.TestCase):
                     "INSERT INTO pendientes (titulo, estado) VALUES ('test', 'inventado')"
                 )
 
+    def test_dificultad_invalida_rejected(self):
+        with self.assertRaises(sqlite3.IntegrityError):
+            with self.conn:
+                self.conn.execute(
+                    "INSERT INTO pendientes (titulo, dificultad) VALUES ('test', 'imposible')"
+                )
+
+    def test_unique_item_fecha_rejected(self):
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO rutina_bloques (nombre) VALUES ('asearme')"
+            )
+            self.conn.execute(
+                "INSERT INTO rutina_items (bloque_id, nombre) VALUES (1, 'ducharme')"
+            )
+            self.conn.execute(
+                "INSERT INTO rutina_completado (item_id, fecha) VALUES (1, '2025-06-01')"
+            )
+        with self.assertRaises(sqlite3.IntegrityError):
+            with self.conn:
+                self.conn.execute(
+                    "INSERT INTO rutina_completado (item_id, fecha) VALUES (1, '2025-06-01')"
+                )
+
+    def test_delete_bloque_con_items_is_restricted(self):
+        with self.conn:
+            self.conn.execute("INSERT INTO rutina_bloques (nombre) VALUES ('asearme')")
+            self.conn.execute("INSERT INTO rutina_items (bloque_id, nombre) VALUES (1, 'ducharme')")
+        with self.assertRaises(sqlite3.IntegrityError):
+            with self.conn:
+                self.conn.execute("DELETE FROM rutina_bloques WHERE id = 1")
+
 
 # ---------------------------------------------------------------------------
 # Contract tests — every subcommand emits parseable JSON with correct exit codes
@@ -638,6 +670,20 @@ class TestSubcommandContract(unittest.TestCase):
         result = self._run("pendiente", "done", "--id", "9999")
         payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
         self.assertEqual(payload["codigo"], "no_encontrado")
+
+    def test_pendiente_add_con_dificultad(self):
+        result = self._run(
+            "pendiente", "add", "--titulo", "Pagar la luz", "--dificultad", "facil"
+        )
+        payload = self._assert_json_ok(result)
+        self.assertEqual(payload["data"]["dificultad"], "facil")
+
+    def test_pendiente_add_dificultad_invalida_fails_cleanly(self):
+        result = self._run(
+            "pendiente", "add", "--titulo", "Pagar la luz", "--dificultad", "imposible"
+        )
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "validacion")
 
     def test_health(self):
         result = self._run("health")

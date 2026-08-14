@@ -52,11 +52,11 @@ Unit 1 alone (schema.sql + vida.py + test_vida.py) likely exceeds 400 lines on i
 
 ## Phase 1: `pendientes.dificultad` (CLI surface)
 
-- [ ] 1.1 In `vida.py`, add `--dificultad` optional flag to `pendiente add`, validated against `('facil','media','dificil')` before INSERT, `codigo: "validacion"` on bad value (mirrors `--prioridad`).
-- [ ] 1.2 Confirm `pendiente today` / `pendiente done` require no code change (SELECT * picks up the new column) — add a comment noting this is intentional/additive.
-- [ ] 1.3 Test: `test_pendiente_add_con_dificultad` — persists and is echoed back in JSON.
-- [ ] 1.4 Test: `test_pendiente_add_dificultad_invalida_fails_cleanly` — `codigo: "validacion"`.
-- [ ] 1.5 Test (TestSchemaConstraints): `test_dificultad_invalida_rejected` — raw `sqlite3.IntegrityError` on a bad CHECK value.
+- [x] 1.1 In `vida.py`, add `--dificultad` optional flag to `pendiente add`, validated against `('facil','media','dificil')` before INSERT, `codigo: "validacion"` on bad value (mirrors `--prioridad`).
+- [x] 1.2 Confirm `pendiente today` / `pendiente done` require no code change (SELECT * picks up the new column) — add a comment noting this is intentional/additive.
+- [x] 1.3 Test: `test_pendiente_add_con_dificultad` — persists and is echoed back in JSON.
+- [x] 1.4 Test: `test_pendiente_add_dificultad_invalida_fails_cleanly` — `codigo: "validacion"`.
+- [x] 1.5 Test (TestSchemaConstraints): `test_dificultad_invalida_rejected` — raw `sqlite3.IntegrityError` on a bad CHECK value.
 
 ## Phase 2: `rutina` Data Model + Subcommand Group
 
