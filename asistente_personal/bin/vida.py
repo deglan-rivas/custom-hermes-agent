@@ -48,7 +48,7 @@ DIFICULTADES = ("facil", "media", "dificil")
 # Versioned schema migrations (daily-routine-tracker design.md §3, D-0)
 # ---------------------------------------------------------------------------
 
-TARGET_SCHEMA_VERSION = 2
+TARGET_SCHEMA_VERSION = 3
 
 # Migrations are ADDITIVE ONLY (D-0.5): add tables/columns/indexes, never drop
 # or rewrite. That convention is what makes "revert the code, keep the data"
@@ -95,6 +95,32 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "CREATE INDEX idx_rutina_items_bloque ON rutina_items(bloque_id, orden)",
         "CREATE INDEX idx_rutina_compl_fecha ON rutina_completado(fecha)",
         "CREATE INDEX idx_rutina_compl_item_fecha ON rutina_completado(item_id, fecha)",
+    ),
+
+    3: (
+        # Per-occurrence completion log for pendientes (pendientes-lifecycle
+        # design.md §3, D-1/D-4). Mirrors rutina_completado: "not done for
+        # this date" == absence of a row.
+        """CREATE TABLE pendientes_completado (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            pendiente_id  INTEGER NOT NULL REFERENCES pendientes(id) ON DELETE RESTRICT,
+            fecha         TEXT    NOT NULL DEFAULT (date('now', 'localtime')),
+            creado_en     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+            fuente        TEXT    NOT NULL DEFAULT 'telegram'
+                                  CHECK (fuente IN ('telegram', 'voz', 'cli', 'cron')),
+            UNIQUE (pendiente_id, fecha)
+        )""",
+
+        "CREATE INDEX idx_pend_compl_fecha ON pendientes_completado(fecha)",
+        "CREATE INDEX idx_pend_compl_pend_fecha ON pendientes_completado(pendiente_id, fecha)",
+
+        # D-5 backfill: every pendiente already closed becomes its own first
+        # log row, so the log is the single source of truth retroactively.
+        # Additive: writes only into a table created two statements ago.
+        """INSERT INTO pendientes_completado (pendiente_id, fecha, creado_en, fuente)
+           SELECT id, date(completado_en), completado_en, fuente
+           FROM pendientes
+           WHERE completado_en IS NOT NULL""",
     ),
 }
 
@@ -1114,6 +1140,7 @@ def cmd_health(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
     tablas = [
         "gastos", "entrenamientos", "tarjetas", "contactos", "pendientes",
         "rutina_bloques", "rutina_items", "rutina_completado",
+        "pendientes_completado",
     ]
     conteos = {
         t: conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"] for t in tablas
