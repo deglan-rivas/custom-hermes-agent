@@ -1541,5 +1541,154 @@ class TestPendienteToday(unittest.TestCase):
         self.assertTrue(any(x["id"] == p["id"] for x in items))
 
 
+# ---------------------------------------------------------------------------
+# pendiente edit (G2)
+# ---------------------------------------------------------------------------
+
+class TestPendienteEdit(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.tmpdir.name, "vida.db")
+        self.env = dict(os.environ, VIDA_DB=self.db_path)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _run(self, *args):
+        return subprocess.run(
+            [sys.executable, VIDA_PY, *args], env=self.env, capture_output=True, text=True
+        )
+
+    def _assert_json_ok(self, result, expect_ok=True, expect_exit=0):
+        self.assertEqual(result.returncode, expect_exit, msg=result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["ok"], expect_ok)
+        return payload
+
+    def _add(self, titulo, **kwargs):
+        args = ["pendiente", "add", "--titulo", titulo]
+        for flag, val in kwargs.items():
+            args += [f"--{flag.replace('_', '-')}", str(val)]
+        return self._assert_json_ok(self._run(*args))["data"]
+
+    def _edit(self, pendiente_id, **kwargs):
+        args = ["pendiente", "edit", "--id", str(pendiente_id)]
+        for flag, val in kwargs.items():
+            args += [f"--{flag.replace('_', '-')}", str(val)]
+        return self._run(*args)
+
+    def test_edit_titulo(self):
+        p = self._add("Pagar luz")
+        payload = self._assert_json_ok(self._edit(p["id"], titulo="Pagar luz de agosto"))
+        self.assertEqual(payload["data"]["titulo"], "Pagar luz de agosto")
+        self.assertIn("titulo", payload["data"]["campos_actualizados"])
+
+    def test_edit_detalle(self):
+        p = self._add("Pagar luz")
+        payload = self._assert_json_ok(self._edit(p["id"], detalle="via Yape"))
+        self.assertEqual(payload["data"]["detalle"], "via Yape")
+        self.assertIn("detalle", payload["data"]["campos_actualizados"])
+
+    def test_edit_fecha(self):
+        p = self._add("Pagar luz")
+        manana = (date.today() + timedelta(days=1)).isoformat()
+        payload = self._assert_json_ok(self._edit(p["id"], fecha=manana))
+        self.assertEqual(payload["data"]["fecha_objetivo"], manana)
+        self.assertIn("fecha_objetivo", payload["data"]["campos_actualizados"])
+
+    def test_edit_hora(self):
+        p = self._add("Pagar luz")
+        payload = self._assert_json_ok(self._edit(p["id"], hora="15:00"))
+        self.assertEqual(payload["data"]["hora"], "15:00")
+        self.assertIn("hora", payload["data"]["campos_actualizados"])
+
+    def test_edit_prioridad(self):
+        p = self._add("Pagar luz")
+        payload = self._assert_json_ok(self._edit(p["id"], prioridad="alta"))
+        self.assertEqual(payload["data"]["prioridad"], "alta")
+        self.assertIn("prioridad", payload["data"]["campos_actualizados"])
+
+    def test_edit_dificultad(self):
+        p = self._add("Pagar luz")
+        payload = self._assert_json_ok(self._edit(p["id"], dificultad="facil"))
+        self.assertEqual(payload["data"]["dificultad"], "facil")
+        self.assertIn("dificultad", payload["data"]["campos_actualizados"])
+
+    def test_edit_recurrencia(self):
+        p = self._add("Pagar luz")
+        payload = self._assert_json_ok(self._edit(p["id"], recurrencia="diaria"))
+        self.assertEqual(payload["data"]["recurrencia"], "diaria")
+        self.assertIn("recurrencia", payload["data"]["campos_actualizados"])
+
+    def test_edit_no_encontrado(self):
+        result = self._edit(9999, titulo="x")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "no_encontrado")
+
+    def test_edit_sin_campos_es_validacion(self):
+        p = self._add("Pagar luz")
+        result = self._run("pendiente", "edit", "--id", str(p["id"]))
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "validacion")
+
+    def test_edit_prioridad_invalida(self):
+        p = self._add("Pagar luz")
+        result = self._edit(p["id"], prioridad="urgente")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "validacion")
+
+    def test_edit_dificultad_invalida(self):
+        p = self._add("Pagar luz")
+        result = self._edit(p["id"], dificultad="imposible")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "validacion")
+
+    def test_edit_fecha_vacia_limpia_el_campo(self):
+        hoy = date.today().isoformat()
+        p = self._add("Pagar luz", fecha=hoy)
+        payload = self._assert_json_ok(self._edit(p["id"], fecha=""))
+        self.assertIsNone(payload["data"]["fecha_objetivo"])
+
+    def test_edit_titulo_vacio_rechazado(self):
+        p = self._add("Pagar luz")
+        result = self._edit(p["id"], titulo="")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "validacion")
+
+    def test_edit_pendiente_cerrado_rechazado(self):
+        p = self._add("Pagar luz")
+        self._assert_json_ok(self._run("pendiente", "done", "--id", str(p["id"])))
+        result = self._edit(p["id"], titulo="otro")
+        payload = self._assert_json_ok(result, expect_ok=False, expect_exit=1)
+        self.assertEqual(payload["codigo"], "pendiente_cerrado")
+
+    def test_edit_no_puede_tocar_estado_ni_completado_en(self):
+        p = self._add("Pagar luz")
+        parser = vida.build_parser()
+        edit_parser = None
+        for action in parser._subparsers._group_actions:
+            if "pendiente" in action.choices:
+                pend_sub = action.choices["pendiente"]
+                for sub_action in pend_sub._subparsers._group_actions:
+                    if "edit" in sub_action.choices:
+                        edit_parser = sub_action.choices["edit"]
+        self.assertIsNotNone(edit_parser)
+        flags = {opt for a in edit_parser._actions for opt in a.option_strings}
+        self.assertNotIn("--estado", flags)
+        self.assertNotIn("--creado-en", flags)
+        self.assertNotIn("--completado-en", flags)
+
+        payload = self._assert_json_ok(
+            self._edit(
+                p["id"],
+                titulo="t", detalle="d", fecha=date.today().isoformat(), hora="09:00",
+                prioridad="alta", dificultad="facil", recurrencia="diaria",
+            )
+        )
+        self.assertEqual(payload["data"]["estado"], "abierto")
+        self.assertIsNone(payload["data"]["completado_en"])
+        self.assertEqual(payload["data"]["creado_en"], p["creado_en"])
+
+
 if __name__ == "__main__":
     unittest.main()

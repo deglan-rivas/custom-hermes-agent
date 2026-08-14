@@ -849,6 +849,69 @@ def cmd_pendiente_done(conn: sqlite3.Connection, args: argparse.Namespace) -> di
     return payload
 
 
+# Literal whitelist, never derived from user input (design.md §5.5): keeps
+# `estado`, `creado_en` and `completado_en` unreachable via `pendiente edit`
+# by construction, not by validation.
+CAMPOS_EDITABLES_PENDIENTE = {
+    "titulo": "titulo",
+    "detalle": "detalle",
+    "fecha": "fecha_objetivo",
+    "hora": "hora",
+    "prioridad": "prioridad",
+    "dificultad": "dificultad",
+    "recurrencia": "recurrencia",
+}
+
+
+def cmd_pendiente_edit(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
+    row = conn.execute("SELECT * FROM pendientes WHERE id = ?", (args.id,)).fetchone()
+    if row is None:
+        raise VidaError(f"no existe pendiente con id {args.id}", "no_encontrado")
+    if row["estado"] != "abierto":
+        raise VidaError(
+            f"el pendiente {args.id} no esta abierto (estado={row['estado']!r})",
+            "pendiente_cerrado",
+        )
+
+    sets: list[str] = []
+    params: list = []
+    actualizados: list[str] = []
+
+    for flag, columna in CAMPOS_EDITABLES_PENDIENTE.items():
+        valor = getattr(args, flag, None)
+        if valor is None:
+            continue  # flag not passed (D-9)
+
+        if valor == "":  # D-9: "" clears the field to NULL
+            if flag == "titulo":
+                raise VidaError("titulo no puede quedar vacio", "validacion")
+            valor_final = None
+        else:
+            valor_final = valor
+            if flag == "prioridad" and valor_final not in PRIORIDADES:
+                raise VidaError(f"prioridad invalida: {valor_final!r}", "validacion")
+            if flag == "dificultad" and valor_final not in DIFICULTADES:
+                raise VidaError(f"dificultad invalida: {valor_final!r}", "validacion")
+            if flag == "fecha":
+                valor_final = _parse_fecha(valor_final).isoformat()
+
+        sets.append(f"{columna} = ?")
+        params.append(valor_final)
+        actualizados.append(columna)
+
+    if not sets:
+        raise VidaError("se requiere al menos un campo a editar", "validacion")
+
+    params.append(args.id)
+    with conn:
+        conn.execute(f"UPDATE pendientes SET {', '.join(sets)} WHERE id = ?", params)
+
+    row = conn.execute("SELECT * FROM pendientes WHERE id = ?", (args.id,)).fetchone()
+    payload = _row_to_dict(row)
+    payload["campos_actualizados"] = actualizados
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # rutina (daily-routine-tracker design.md §5)
 # ---------------------------------------------------------------------------
@@ -1325,6 +1388,17 @@ def build_parser() -> argparse.ArgumentParser:
     pendiente_done.add_argument("--id", type=int, required=True)
     pendiente_done.add_argument("--fuente")
     pendiente_done.set_defaults(func=cmd_pendiente_done)
+
+    pendiente_edit = pendiente_sub.add_parser("edit")
+    pendiente_edit.add_argument("--id", type=int, required=True)
+    pendiente_edit.add_argument("--titulo")
+    pendiente_edit.add_argument("--detalle")
+    pendiente_edit.add_argument("--fecha")
+    pendiente_edit.add_argument("--hora")
+    pendiente_edit.add_argument("--prioridad")
+    pendiente_edit.add_argument("--dificultad")
+    pendiente_edit.add_argument("--recurrencia")
+    pendiente_edit.set_defaults(func=cmd_pendiente_edit)
 
     rutina = subparsers.add_parser("rutina")
     rutina_sub = rutina.add_subparsers(dest="subcomando", required=True)
