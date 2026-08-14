@@ -1,0 +1,66 @@
+change: pendientes-lifecycle
+artifact_store: openspec
+baseline: daily-routine-tracker (live on labia03, schema_version=2, pendientes.dificultad present)
+phases:
+  explore: done
+  proposal: done
+  spec: done
+  design: done
+  tasks: done
+  apply: in_progress
+  verify: pending
+  archive: pending
+artifacts:
+  explore: "Engram observation #674 (topic: sdd/pendientes-lifecycle/explore)"
+  proposal: openspec/changes/pendientes-lifecycle/proposal.md
+  spec: openspec/changes/pendientes-lifecycle/spec.md
+  design: openspec/changes/pendientes-lifecycle/design.md
+  tasks: openspec/changes/pendientes-lifecycle/tasks.md
+blocking_preconditions:
+  P0.1: "Migration rehearsal (v2 -> v3) against a COPY of the production vida.db. Pass: schema_version==3, pendientes_completado exists, PRAGMA integrity_check==ok, row counts unchanged for gastos/entrenamientos/tarjetas/contactos/pendientes/rutina_*, and COUNT(pendientes_completado) == COUNT(pendientes WHERE completado_en IS NOT NULL) (D-5 backfill). Blocks PR1 deploy only."
+  P0.2: "Fresh verified restic backup (<24h) immediately before applying PR1 in production; degrades to an off-host local copy of vida.db while Fase 1 F0.5 stays open. Blocks PR1 deploy only."
+delivery:
+  strategy: chained-prs
+  chain_strategy: stacked-to-main
+  pr_count: 2
+  split:
+    PR1: "G-1 (today filter + sort) + G-2 (edit) + G-4 (recurring reset) + G-5 (skill update) -- behavioral/schema-risk core"
+    PR2: "G-3 (historial + stats) -- additive, read-only, cleanly separable"
+proposal_summary:
+  scope_in:
+    - "G-1 `pendiente today` includes fecha_objetivo IS NULL rows; derived `sin_fecha` field; NO limit; sort prioridad -> dificultad asc -> hora"
+    - "G-2 `pendiente edit --id` (titulo/detalle/fecha/hora/prioridad/dificultad/recurrencia); silent overwrite, no audit table"
+    - "G-3 `pendiente historial` (port of cmd_rutina_historial) + `pendiente stats` (simple counts: creados/resueltos/abiertos/vencidos by prioridad and dificultad)"
+    - "G-4 recurring pendientes must reappear after `done` -- design picks lowest-risk fix (append-only occurrence log vs reset-to-abierto)"
+    - "G-5 update skills/agenda-personal/SKILL.md with `sin_fecha` and `pendiente edit`"
+  scope_out:
+    - "pendiente delete / cancelar (estado='cancelado' stays dead code)"
+    - "edit audit trail / history"
+    - "time-to-resolution metric and completion percentages in `pendiente stats`"
+    - "any cap, pagination or summarization of the `pendiente today` payload"
+  key_decisions:
+    - "Relax the Python-side filter in cmd_pendiente_today (vida.py:729-753); NO migration, NO 4th estado value -- sin_fecha is derived, not persisted"
+    - "No LIMIT on today: ordering (prioridad -> dificultad) mitigates noise instead of an arbitrary cut"
+    - "No pendientes_audit table: pendientes is a current-state table, not an append-only log like rutina_completado/entrenamientos"
+    - "stats uses raw counts, not rutina's per-day-opportunity percentage model (one-shot tasks have no denominator)"
+    - "SKILL.md:55 already promises 'sin fecha es valido, no se descarta' -- G-1 makes the CLI honor an existing contract"
+resolved_design_questions:
+  Q1: "RESOLVED (design D-1/D-4/D-5): append-only log `pendientes_completado` + schema_version 3. `pendiente done` ALWAYS writes a log row (one-shot AND recurring) -> historial/stats read ONE source, no UNION. Migration backfills the log from existing pendientes.completado_en. PR1 carries the migration; P0.1/P0.2 reactivated."
+  Q2: "RESOLVED (design D-7): `dificultad IS NULL` sorts as `media` (rank 1), mirroring `prioridad NOT NULL DEFAULT 'media'` in the same table. Behaviour-preserving today (all prod rows are NULL -> all tie). Final sort key: prioridad -> dificultad -> hora -> id (D-8)."
+open_design_questions:
+  Q1: "RESOLVED in spec (binding decision post-proposal): G-4 uses option (a), append-only `pendientes_completado` log, schema_version 2 -> 3. Reactivates daily-routine-tracker's P0.1/P0.2 migration gates for PR1."
+  Q2: "RESOLVED in spec: dificultad IS NULL sorts LAST within a prioridad tier (after 'dificil'), since prioridad still dominates the overall order."
+constraints:
+  - "Must not modify the 4 existing pendiente tests (test_vida.py L655-684) nor test_invalid_estado_pendiente_rejected (L507)"
+  - "JSON contract must stay additive: rutina today consumes pendiente today verbatim (cron-jobs.md 5.1, daily-routine-tracker design.md D-6). Order and item count DO change observably -- verify the 7am briefing."
+apply_progress:
+  branch: feat/pendientes-lifecycle-pr1-recurring-edit
+  phases_done: [0, 1, 2, 3, 4, 5]
+  phase_6_production_rollout: NOT_DONE
+  tests: "120/120 passing (asistente_personal/tests/test_vida.py, python3 -m unittest discover)"
+  notes: >
+    PR1 code/tests/skill landed locally (5 commits, not pushed, no PR opened).
+    Phase 6 (P0.1 migration rehearsal against a copy of prod vida.db, P0.2
+    backup, actual deploy to labia03) intentionally NOT executed -- requires
+    explicit human confirmation, same as daily-routine-tracker's rollout.
+next_recommended: [sdd-verify, sdd-apply-phase-6-manual]
