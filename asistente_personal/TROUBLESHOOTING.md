@@ -35,6 +35,13 @@ scripts que las skills invocan) nunca se montó.
 
 ## 3. Healthcheck de `whisper` en falso negativo permanente
 
+> **Nota (change `whisper-backend-swap`):** este incidente es específico de la imagen
+> `onerahmet/openai-whisper-asr-webservice:latest-gpu`, retirada por ese change en favor de
+> `ghcr.io/speaches-ai/speaches`. La imagen `speaches` sí trae `curl` (verificado en vivo,
+> `openspec/changes/whisper-backend-swap/tasks.md` T3) y el healthcheck volvió a `curl` plano.
+> Se deja este registro intacto porque sigue siendo válido para cualquiera que haga rollback a
+> la imagen `onerahmet`.
+
 **Síntoma:** el contenedor `whisper` quedaba `unhealthy` indefinidamente aunque el servicio
 funcionaba bien (`nvidia-smi` mostraba el proceso cargado y usando VRAM).
 

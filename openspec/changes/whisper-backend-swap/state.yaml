@@ -1,0 +1,52 @@
+change: whisper-backend-swap
+artifact_store: openspec
+baseline: hermes-personal-assistant (Fase 1, live on labia03) + daily-routine-tracker (planned, unrelated surface)
+phases:
+  explore: done
+  proposal: done
+  spec: pending
+  design: pending
+  tasks: pending
+  apply: pending
+  verify: pending
+  archive: pending
+artifacts:
+  explore: openspec/changes/whisper-backend-swap/explore.md
+  proposal: openspec/changes/whisper-backend-swap/proposal.md
+proposal_summary:
+  scope_in:
+    - "D-1 docker-compose.yml `whisper` service: image -> ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda-12.6.3, new env block, curl /health healthcheck, cache volume path, longer start_period"
+    - "D-2 docker-compose.yml `hermes` service: WHISPER_URL http://whisper:9000 -> http://whisper:8000 (runtime override, missed by explore)"
+    - "D-3 ops/transcribe-voice.sh: default port, endpoint /asr?output=json -> /v1/audio/transcriptions, multipart audio_file -> file, prose/error text"
+    - "D-4 docs: skills/entrada-voz/SKILL.md, ops/SECURITY-GROUP6.md (port/endpoint prose); TROUBLESHOOTING.md 3 annotated as onerahmet-specific, not deleted"
+  scope_out:
+    - "whisper.cpp (evaluated, explicitly rejected by user)"
+    - "distil/quantized model variants (user wants minimal precision loss)"
+    - "entrada-voz skill calling contract (ok/error JSON envelope stays identical)"
+    - "hermes and restic services beyond the single WHISPER_URL line"
+    - "publishing ports for whisper (stays internal-network only)"
+  key_decisions:
+    - "Backend: speaches (same CTranslate2/faster-whisper engine family) keeps large-v3 float16 unquantized -- identical precision path, not an approximation"
+    - "STT_MODEL_TTL disabled/very high instead of ~600s parity -- 48GB VRAM, single user, no other GPU consumer; cold reload is likely half the perceived latency problem"
+    - "PRELOAD_MODELS=Systran/faster-whisper-large-v3 required -- live /api/ps confirmed zero models loaded by default"
+    - "Healthcheck GET /health verified live with plain curl -- closes the TROUBLESHOOTING.md 3 failure class by design; matters because hermes depends_on whisper: service_healthy"
+    - "Do NOT sell this as 'faster via batching' -- unverified for single short files; real wins are maintained image, sane healthcheck, standard contract, resident model"
+    - "Response parsing unchanged: live OpenAPI declares Transcription.required: ['text']"
+  discovered_this_phase:
+    - "hermes service sets WHISPER_URL: http://whisper:9000 in docker-compose.yml (~line 23), overriding the script default at runtime -- explore.md scoped only the script. Without D-2 the swap silently does not apply."
+    - "transcribe-voice.sh mentions /asr in header comments (lines 2, 8) and in the whisper_no_disponible error string (line 47), not just in the curl call."
+blocking_verifications:
+  V1: "Confirm the real HuggingFace cache directory inside the speaches container and mount whisper-cache there. Wrong path degrades silently to re-downloading large-v3 on every recreate."
+  V2: "Confirm how STT_MODEL_TTL expresses 'never unload' (-1/0 sentinel vs large seconds value); validate via /api/ps after exceeding the 300s default."
+  V3: "Confirm whether the multipart `model` field is required by /v1/audio/transcriptions (OpenAI-compatible APIs require it). Do NOT assume the server default suffices."
+  V4: "End-to-end transcription of a real Telegram voice note: text parity vs current backend + warm latency measurement."
+notes:
+  cache_volume: >
+    Cache format is not reusable between images. Expect a full large-v3 download on first
+    boot; raise start_period (currently 300s). Keep the old whisper-cache volume intact
+    during transition so a rollback does not re-download.
+  rollback: >
+    Same service name, same container_name, same JSON-with-`text` response family.
+    Single `git revert` restores image, env block, healthcheck, WHISPER_URL and script.
+    Worst-case failure mode is "Fase 1 sin voz" (depends_on is required: false), not a blocked boot.
+next_recommended: [sdd-spec, sdd-design]

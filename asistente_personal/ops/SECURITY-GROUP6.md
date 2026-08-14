@@ -51,8 +51,8 @@ rollout and confirms it lands in `~/.hermes/pending/skills/`.
 
 **Done in this PR.** Reviewed for this PR: `bin/vida.py` (pure `sqlite3`, stdlib only — no
 network calls of any kind), all `skills/*/SKILL.md` (each documents only `vida.py` invocations or,
-for `entrada-voz`, a call to the internal `whisper:9000` service), `ops/transcribe-voice.sh` (the
-only new network call in this PR — `curl` against `${WHISPER_URL:-http://whisper:9000}`, a
+for `entrada-voz`, a call to the internal `whisper:8000` service), `ops/transcribe-voice.sh` (the
+only new network call in this PR — `curl` against `${WHISPER_URL:-http://whisper:8000}`, a
 compose-internal, unpublished service per `docker-compose.yml`'s `whisper` block — no `ports:`
 exposed), `config/config.yaml.template` (`provider.base_url` = the one configured LLM endpoint,
 `telegram.token` = the one configured Telegram bot). **Finding: no third-party STT/analytics/data

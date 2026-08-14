@@ -8,7 +8,8 @@ networks:
   asistente: { driver: bridge }
 
 volumes:
-  whisper-cache:
+  whisper-cache:        # legacy (onerahmet image) - keep until swap is validated stable
+  speaches-cache:       # new backend
 
 services:
   hermes:
@@ -20,7 +21,7 @@ services:
     environment:
       TZ: America/Lima                        # D4 - sole source of "7am"
       VIDA_DB: /opt/data/data/vida.db
-      WHISPER_URL: http://whisper:9000
+      WHISPER_URL: http://whisper:8000
     volumes:
       - ${HERMES_DATA:-./state/hermes}:/opt/data          # D9 - unico volumen con estado
       - ./bin/vida.py:/opt/data/bin/vida.py:ro            # D2 - data gate inmutable
@@ -43,18 +44,19 @@ services:
   # If nvidia-container-toolkit is unconfirmed, do not run `docker compose up whisper`
   # yet; set WHISPER_OPTIONAL=1 in ops/.env.ops and document the degraded state in README.
   whisper:
-    image: onerahmet/openai-whisper-asr-webservice:latest-gpu
+    image: ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda-12.6.3
     container_name: whisper
     restart: unless-stopped
     environment:
       TZ: America/Lima
-      ASR_ENGINE: faster_whisper
-      ASR_MODEL: large-v3
-      ASR_DEVICE: cuda
-      ASR_COMPUTE_TYPE: float16
-      MODEL_IDLE_TIMEOUT: "600"        # libera VRAM entre notas de voz
+      WHISPER__INFERENCE_DEVICE: cuda
+      WHISPER__COMPUTE_TYPE: float16   # large-v3 sin cuantizar, misma ruta de precision que hoy
+      # Array JSON obligatorio: pydantic-settings parsea list[str] como JSON (design ADR-2).
+      # Este id tambien vive en ops/transcribe-voice.sh (-F model=...). Cambiar los dos juntos.
+      PRELOAD_MODELS: '["Systran/faster-whisper-large-v3"]'
+      STT_MODEL_TTL: "-1"              # -1 = nunca descargar. Reemplaza MODEL_IDLE_TIMEOUT=600.
     volumes:
-      - whisper-cache:/root/.cache
+      - speaches-cache:/home/ubuntu/.cache/huggingface/hub   # verificado en vivo (Phase 0 / T2)
     deploy:
       resources:
         reservations:
@@ -63,12 +65,12 @@ services:
               count: 1
               capabilities: [gpu]      # unica GPU passthrough del stack
     healthcheck:
-      # La imagen no trae curl/wget; usamos python3 (sí presente) vía urllib.
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9000/docs', timeout=5).status==200 else 1)\""]
+      # Verificado en vivo (Phase 0 / T3): la imagen trae curl, GET /health -> 200 {"message":"OK"}.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health >/dev/null || exit 1"]
       interval: 60s
       timeout: 10s
       retries: 3
-      start_period: 300s               # descarga inicial de large-v3
+      start_period: 1800s              # primer arranque: descarga completa de large-v3 (~3GB) + carga en VRAM
     logging: *log
     networks: [asistente]
     # sin `ports:` - solo alcanzable desde la red interna del compose
