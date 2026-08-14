@@ -1,0 +1,49 @@
+change: daily-routine-tracker
+artifact_store: openspec
+baseline: hermes-personal-assistant (Fase 1, live on labia03, schema_version=1)
+phases:
+  explore: done
+  proposal: done
+  spec: done
+  design: done
+  tasks: done
+  apply: pending
+  verify: pending
+  archive: pending
+artifacts:
+  explore: "Engram observation #609 (topic: sdd/daily-routine-tracker/explore)"
+  proposal: openspec/changes/daily-routine-tracker/proposal.md
+  spec: openspec/changes/daily-routine-tracker/spec.md
+  design: openspec/changes/daily-routine-tracker/design.md
+  tasks: openspec/changes/daily-routine-tracker/tasks.md
+proposal_summary:
+  scope_in:
+    - "D-0 incremental versioned schema migration (schema_version 1 -> 2) -- blocking precondition"
+    - "D-1 pendientes.dificultad (nullable, facil/media/dificil); NO urgencia column (prioridad already is it)"
+    - "D-2 rutina_bloques + rutina_items + rutina_completado (append-only log, UNIQUE(item_id, fecha))"
+    - "D-3 vida.py `rutina` subcommand group: bloque add, item add, today, done, historial, stats"
+    - "D-4 new skills/rutina-diaria/SKILL.md (separate from agenda-personal)"
+    - "D-5 extend EXISTING 7am briefing cron (ops/cron-jobs.md 5.1) with `rutina today`"
+    - "D-6 new weekly Monday cron for `rutina stats` adherence summary"
+  scope_out:
+    - "reminders/alerts near rutina_items.hora_objetivo (future enhancement)"
+    - "any UI beyond Telegram conversation"
+    - "editing/reordering blocks other than natural-language re-registration"
+  key_decisions:
+    - "Versioned migration blocks in schema.sql + version-gated _ensure_schema(); schema.sql stays fresh-db bootstrap and MUST stay equivalent to fully-migrated state"
+    - "Extend vida.py, do NOT fork a daily.py/second db -- preserves D2 single data gate, avoids second JSON contract, keeps rutina today x pendientes JOIN possible"
+    - "Append-only completion log instead of mutable done flag -- daily reset is free, no reset cron, historial/stats come free"
+    - "prioridad is NOT renamed to urgencia (breaking change vs live agenda-personal skill for zero gain)"
+blocking_preconditions:
+  P0.1: "Dry-run migration against a COPY of the real production vida.db (schema_version=2, integrity_check OK, identical row counts) BEFORE touching labia03"
+  P0.2: "Fresh verified restic backup (<24h) immediately before applying migration in production; falls back to an off-host local vida.db copy if Fase 1 F0.5 is still open"
+notes:
+  fase1_operational_gap: >
+    NOT part of this change's scope. During testing it was found the Fase 1 7am briefing
+    cron job was never actually registered on labia03 (only a throwaway smoke-test job,
+    later deleted per ops/cron-jobs.md 5.5). User is fixing it directly via Telegram.
+    Recorded here only because D-5 assumes that job exists in order to extend it.
+  greenfield_assumption_superseded: >
+    hermes-personal-assistant/design.md 13 "no data migration -- greenfield" no longer holds.
+    Noted, not rewritten (that change is closed).
+next_recommended: [sdd-apply]
