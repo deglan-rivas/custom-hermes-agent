@@ -25,6 +25,7 @@ services:
       - ${HERMES_DATA:-./state/hermes}:/opt/data          # D9 - unico volumen con estado
       - ./bin/vida.py:/opt/data/bin/vida.py:ro            # D2 - data gate inmutable
       - ./data/schema.sql:/opt/data/bin/schema.sql:ro
+      - ./ops:/opt/data/ops:ro                            # scripts que las skills invocan (transcribe-voice.sh, etc.)
     depends_on:
       whisper: { condition: service_healthy, required: false }
     healthcheck:
